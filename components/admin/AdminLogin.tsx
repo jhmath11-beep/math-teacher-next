@@ -55,7 +55,7 @@ export function AdminLogin({ children }: AdminLoginProps) {
             type="password"
             value={password}
             onChange={(event) => setPassword(event.target.value)}
-            placeholder="기본값: admin1234"
+            placeholder="관리자 비밀번호"
           />
         </label>
         <div className="action-row">
