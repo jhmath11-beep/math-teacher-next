@@ -21,7 +21,7 @@ async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<T
       ...(options.headers || {})
     }
   });
-  const data = await response.json();
+  const data = await response.json().catch(() => ({ error: "서버 응답을 읽지 못했습니다." }));
   if (!response.ok) throw new Error(data.error || "요청에 실패했습니다.");
   return data as T;
 }
@@ -248,7 +248,9 @@ export function AdminDashboard() {
 
   return (
     <div className="stack">
-      <p className={`notice ${notice.tone === "error" ? "notice-error" : ""}`}>{notice.message}</p>
+      {notice.message ? (
+        <p className={`notice ${notice.tone === "error" ? "notice-error" : ""}`}>{notice.message}</p>
+      ) : null}
 
       <section className="panel">
         <h3>단원 정보 등록</h3>
