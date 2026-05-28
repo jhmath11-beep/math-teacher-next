@@ -3,6 +3,11 @@ import type { BootstrapData, CreateSubunitInput } from "@/types/database";
 
 const PDF_BUCKET = "math-textbook-pdfs";
 
+function throwSupabaseError(error: { message?: string; details?: string; hint?: string; code?: string }) {
+  const parts = [error.message, error.details, error.hint, error.code ? `code: ${error.code}` : ""].filter(Boolean);
+  throw new Error(parts.join(" / ") || "Supabase 요청에 실패했습니다.");
+}
+
 export async function getBootstrapData(): Promise<BootstrapData> {
   const supabase = createSupabaseAdmin();
 
@@ -16,7 +21,7 @@ export async function getBootstrapData(): Promise<BootstrapData> {
   ]);
 
   for (const result of [grades, publishers, units, subunits, texts, generated]) {
-    if (result.error) throw result.error;
+    if (result.error) throwSupabaseError(result.error);
   }
 
   return {
