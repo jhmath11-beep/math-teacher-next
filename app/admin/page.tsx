@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { AdminLogin } from "@/components/admin/AdminLogin";
 import { AdminDashboard } from "@/components/admin/AdminDashboard";
 
@@ -12,6 +13,9 @@ export default function AdminPage() {
             단원 구조, PDF, 성취기준, 생성 결과를 관리합니다.
           </p>
         </div>
+        <nav className="nav-list" aria-label="주요 화면">
+          <Link className="nav-link" href="/">교사용 화면</Link>
+        </nav>
       </aside>
       <main className="stack">
         <div className="page-heading">
