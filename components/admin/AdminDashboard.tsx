@@ -29,6 +29,7 @@ type InventoryRow = {
 async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(path, {
     ...options,
+    cache: "no-store",
     headers: {
       "content-type": "application/json",
       ...(options.headers || {})
@@ -329,6 +330,46 @@ export function AdminDashboard() {
           </label>
           <button className="primary-button" type="submit">소단원 저장</button>
         </form>
+      </section>
+
+      <section className="panel">
+        <div className="section-heading">
+          <div>
+            <h3>등록된 단원 목록</h3>
+            <p className="muted">입력한 학년, 출판사, 대단원, 소단원을 확인하고 중복 입력을 점검합니다.</p>
+          </div>
+          <button className="secondary-button" type="button" onClick={() => refresh()}>목록 새로고침</button>
+        </div>
+        {inventoryRows.length ? (
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>학년</th>
+                  <th>출판사</th>
+                  <th>대단원</th>
+                  <th>소단원</th>
+                  <th>PDF</th>
+                  <th>AI 결과</th>
+                </tr>
+              </thead>
+              <tbody>
+                {inventoryRows.map((row) => (
+                  <tr key={row.id}>
+                    <td>{row.gradeName}</td>
+                    <td>{row.publisherName}</td>
+                    <td>{row.unitTitle}</td>
+                    <td>{row.subunitTitle}</td>
+                    <td>{row.textLength > 0 ? <span className="status-ok">텍스트 저장됨</span> : <span className="status-empty">미등록</span>}</td>
+                    <td>{row.hasGeneratedContent ? <span className="status-ok">생성됨</span> : <span className="status-empty">미생성</span>}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="notice">아직 등록된 단원이 없습니다.</p>
+        )}
       </section>
 
       <section className="panel">
