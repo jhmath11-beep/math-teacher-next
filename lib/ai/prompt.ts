@@ -56,6 +56,64 @@ export function buildMathTeacherPrompt(input: {
     "- 교과서 내용에 근거해서 생성하세요.",
     "- 교과서에 없는 내용을 과도하게 확장하지 마세요.",
     "- 중학교 2학년 수준에 맞게 설명하세요.",
-    "- 결과는 JSON 형식으로 반환하세요."
+    "- 결과는 JSON 형식으로 반환하세요.",
+    "- 반드시 아래 JSON 키 이름을 그대로 사용하세요. 한글 키 이름을 사용하지 마세요.",
+    "",
+    "JSON 구조:",
+    JSON.stringify({
+      achievementStandards: [
+        { code: "9수01-06", description: "성취기준 문장", relation: "직접 연결" }
+      ],
+      summary: ["핵심 개념 요약 문장"],
+      checkQuizzes: [
+        {
+          difficulty: "쉬움",
+          type: "객관식",
+          question: "문항",
+          choices: ["선택지1", "선택지2", "선택지3", "선택지4"],
+          answer: "정답",
+          explanation: "간단한 해설"
+        }
+      ],
+      examQuestions: [
+        { question: "시험대비문항", answer: "정답", solution: "풀이 과정" }
+      ],
+      essayQuestions: [
+        { question: "논술형 문항", modelAnswer: "모범 답안" }
+      ],
+      rubric: {
+        assessmentAreaName: "평가 영역명",
+        totalScore: 20,
+        achievementStandards: ["[9수01-06] 성취기준"],
+        achievementLevels: { high: "상", middle: "중", low: "하" },
+        assessmentMethods: ["서술형"],
+        scoringRubric: [
+          {
+            element: "개념 이해",
+            maxScore: 8,
+            levels: [
+              { score: 8, description: "채점 기준" },
+              { score: 4, description: "채점 기준" }
+            ]
+          }
+        ],
+        baseScore: { submittedBlank: 1, notSubmitted: 0, excusedAbsent: 0 }
+      },
+      gameActivities: [
+        {
+          title: "활동명",
+          duration: "30~45분",
+          materials: "준비물",
+          procedure: "진행 방법",
+          variation: "변형 방법",
+          aiPrompt: "다른 AI나 바이브코딩 도구에 붙여 넣을 프롬프트"
+        }
+      ],
+      teacherTips: {
+        intro: "도입",
+        development: "전개",
+        wrapUp: "정리"
+      }
+    }, null, 2)
   ].join("\n");
 }
