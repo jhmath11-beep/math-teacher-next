@@ -92,6 +92,7 @@ export function AdminDashboard() {
   const [rangeEnd, setRangeEnd] = useState(1);
   const [rangePreview, setRangePreview] = useState("");
   const [isUploadingPdf, setIsUploadingPdf] = useState(false);
+  const [isSavingStandard, setIsSavingStandard] = useState(false);
   const [pdfInputKey, setPdfInputKey] = useState(0);
 
   const subunitOptions = useMemo(() => {
@@ -293,6 +294,8 @@ export function AdminDashboard() {
   async function saveStandard() {
     if (!standardSubunitId) return;
     try {
+      setIsSavingStandard(true);
+      setNotice({ tone: "normal", message: "업로드중... 성취기준을 저장하는 중입니다." });
       await apiRequest("/api/subunit-standard", {
         method: "POST",
         body: JSON.stringify({
@@ -301,9 +304,13 @@ export function AdminDashboard() {
         })
       });
       await refresh();
+      setStandardSubunitId("");
+      setAchievementStandard("");
       setNotice({ tone: "normal", message: "성취기준을 저장했습니다." });
     } catch (error) {
       setNotice({ tone: "error", message: error instanceof Error ? error.message : "성취기준 저장 실패" });
+    } finally {
+      setIsSavingStandard(false);
     }
   }
 
@@ -438,7 +445,11 @@ export function AdminDashboard() {
           <>
             <label>
               성취기준을 연결할 소단원
-              <select value={standardSubunitId} onChange={(event) => setStandardSubunitId(event.target.value)}>
+              <select
+                value={standardSubunitId}
+                onChange={(event) => setStandardSubunitId(event.target.value)}
+                disabled={isSavingStandard}
+              >
                 <option value="">소단원 선택</option>
                 {subunitOptions.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
               </select>
@@ -455,6 +466,7 @@ export function AdminDashboard() {
               <select
                 value={achievementStandard}
                 onChange={(event) => setAchievementStandard(event.target.value)}
+                disabled={isSavingStandard}
               >
                 <option value="">성취기준 선택</option>
                 {achievementStandards.map((standard) => (
@@ -469,8 +481,8 @@ export function AdminDashboard() {
                 선택한 성취기준: [{selectedAchievementStandard.code}] {selectedAchievementStandard.text}
               </p>
             ) : null}
-            <button className="secondary-button" type="button" onClick={saveStandard} disabled={!standardSubunitId || !achievementStandard}>
-              성취기준 저장
+            <button className="secondary-button" type="button" onClick={saveStandard} disabled={!standardSubunitId || !achievementStandard || isSavingStandard}>
+              {isSavingStandard ? "업로드중..." : "성취기준 저장"}
             </button>
           </>
         ) : (
