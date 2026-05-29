@@ -141,6 +141,19 @@ label {
   font-weight: 700;
 }
 
+.inline-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  color: #536474;
+}
+
+.inline-check input {
+  width: 18px;
+  height: 18px;
+}
+
 input,
 select,
 textarea {
