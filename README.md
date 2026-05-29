@@ -16,6 +16,13 @@ NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
 OPENAI_API_KEY=
+OPENAI_ENABLE_WEB_SEARCH=false
+```
+
+문항 변형 아이디어 보강을 위해 OpenAI 웹 검색 도구를 사용하려면 Vercel 환경변수에 아래 값을 추가합니다.
+
+```txt
+OPENAI_ENABLE_WEB_SEARCH=true
 ```
 
 ## 설치 및 실행
