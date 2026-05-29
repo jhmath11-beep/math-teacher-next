@@ -84,6 +84,7 @@ export function AdminDashboard() {
   const [selectedSubunitId, setSelectedSubunitId] = useState("");
   const [standardSubunitId, setStandardSubunitId] = useState("");
   const [achievementStandard, setAchievementStandard] = useState("");
+  const [textReviewSubunitId, setTextReviewSubunitId] = useState("");
   const [subunitText, setSubunitText] = useState("");
   const [fullPdfPages, setFullPdfPages] = useState<PdfPage[]>([]);
   const [fullPdfFileName, setFullPdfFileName] = useState("");
@@ -178,12 +179,12 @@ export function AdminDashboard() {
   }, []);
 
   useEffect(() => {
-    if (!data || !selectedSubunitId) {
+    if (!data || !textReviewSubunitId) {
       setSubunitText("");
       return;
     }
-    setSubunitText(data.pdfTexts[selectedSubunitId]?.text || "");
-  }, [data, selectedSubunitId]);
+    setSubunitText(data.pdfTexts[textReviewSubunitId]?.text || "");
+  }, [data, textReviewSubunitId]);
 
   useEffect(() => {
     if (!data || !standardSubunitId) {
@@ -268,7 +269,6 @@ export function AdminDashboard() {
       });
       await refresh();
       setSelectedSubunitId("");
-      setSubunitText("");
       setPdfInputKey((prev) => prev + 1);
       setNotice({ tone: "normal", message: "PDF와 추출 텍스트를 저장했습니다." });
     } catch (error) {
@@ -279,13 +279,13 @@ export function AdminDashboard() {
   }
 
   async function saveManualText() {
-    if (!selectedSubunitId) return;
+    if (!textReviewSubunitId) return;
     try {
       await apiRequest("/api/subunit-text", {
         method: "POST",
         body: JSON.stringify({
-          subunitId: selectedSubunitId,
-          fileName: data?.pdfTexts[selectedSubunitId]?.fileName || "",
+          subunitId: textReviewSubunitId,
+          fileName: data?.pdfTexts[textReviewSubunitId]?.fileName || "",
           extractedText: subunitText
         })
       });
@@ -533,9 +533,34 @@ export function AdminDashboard() {
       </section>
 
       <section className="panel">
-        <h3>소단원 DB에 저장된 텍스트</h3>
-        <textarea value={subunitText} onChange={(event) => setSubunitText(event.target.value)} />
-        <button className="secondary-button" type="button" onClick={saveManualText}>소단원 텍스트 다시 저장</button>
+        <h3>추출된 교과서 텍스트 확인/수정</h3>
+        <label>
+          확인할 소단원
+          <select value={textReviewSubunitId} onChange={(event) => setTextReviewSubunitId(event.target.value)}>
+            <option value="">소단원 선택</option>
+            {subunitOptions.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
+          </select>
+        </label>
+        {textReviewSubunitId ? (
+          data?.pdfTexts[textReviewSubunitId]?.text ? (
+            <p className="selected-path">
+              저장된 텍스트: {data.pdfTexts[textReviewSubunitId].text.length.toLocaleString()}자 · {data.pdfTexts[textReviewSubunitId].fileName || "파일명 없음"}
+            </p>
+          ) : (
+            <p className="notice">이 소단원에는 아직 저장된 PDF 추출 텍스트가 없습니다.</p>
+          )
+        ) : (
+          <p className="muted">소단원을 선택하면 AI가 사용할 교과서 텍스트를 확인할 수 있습니다.</p>
+        )}
+        <textarea
+          value={subunitText}
+          onChange={(event) => setSubunitText(event.target.value)}
+          placeholder="소단원을 선택하면 PDF에서 추출된 텍스트가 표시됩니다."
+          disabled={!textReviewSubunitId}
+        />
+        <button className="secondary-button" type="button" onClick={saveManualText} disabled={!textReviewSubunitId}>
+          수정한 텍스트 저장
+        </button>
       </section>
 
       <section className="panel">
