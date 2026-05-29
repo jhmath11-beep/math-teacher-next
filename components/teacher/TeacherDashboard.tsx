@@ -132,8 +132,30 @@ function RubricView({ rubric }: { rubric: unknown }) {
 }
 
 function GeneratedContentView({ content }: { content: GeneratedContent }) {
+  const hasAnyContent = Boolean(
+    content.achievementStandards?.length ||
+    content.summary?.length ||
+    content.checkQuizzes?.length ||
+    content.examQuestions?.length ||
+    content.essayQuestions?.length ||
+    content.gameActivities?.length ||
+    content.teacherTips?.intro ||
+    content.teacherTips?.development ||
+    content.teacherTips?.wrapUp
+  );
+
   return (
     <div className="stack">
+      {!hasAnyContent ? (
+        <section className="panel">
+          <h3>생성 결과 확인 필요</h3>
+          <p className="notice notice-error">
+            AI 결과가 저장되었지만 화면에 표시할 항목을 찾지 못했습니다. 아래 JSON 원본을 확인해 주세요.
+          </p>
+          <pre className="json-box">{JSON.stringify(content, null, 2)}</pre>
+        </section>
+      ) : null}
+
       <section className="panel">
         <h3>과목별 단원별 성취기준</h3>
         {(content.achievementStandards || []).map((item) => (
