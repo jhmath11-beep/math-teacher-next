@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createSupabaseAdmin } from "@/lib/supabase/admin";
-import { generateMathContent } from "@/lib/ai/generateContent";
+import { generateMathContent, normalizeGeneratedContent } from "@/lib/ai/generateContent";
 
 export async function POST(request: Request) {
   try {
@@ -20,7 +20,7 @@ export async function POST(request: Request) {
     if (saved) {
       return NextResponse.json({
         source: saved.source,
-        content: saved.content,
+        content: normalizeGeneratedContent(saved.content),
         model: saved.model,
         cached: true
       });
