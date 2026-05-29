@@ -138,6 +138,11 @@ export function AdminDashboard() {
     generatedCount: inventoryRows.filter((row) => row.hasGeneratedContent).length
   }), [inventoryRows]);
 
+  const selectedStandardRow = useMemo(
+    () => inventoryRows.find((row) => row.id === standardSubunitId),
+    [inventoryRows, standardSubunitId]
+  );
+
   function formatDate(value: string) {
     if (!value) return "-";
     const date = new Date(value);
@@ -192,6 +197,11 @@ export function AdminDashboard() {
 
   async function createSubunit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!unitForm.gradeName.trim() || !unitForm.publisherName.trim() || !unitForm.unitTitle.trim() || !unitForm.subunitTitle.trim()) {
+      setNotice({ tone: "error", message: "학년, 출판사, 대단원, 소단원을 모두 입력해 주세요." });
+      return;
+    }
+
     try {
       await apiRequest("/api/subunits", {
         method: "POST",
@@ -419,12 +429,37 @@ export function AdminDashboard() {
 
       <section className="panel">
         <h3>소단원 성취기준 연결</h3>
-        <select value={standardSubunitId} onChange={(event) => setStandardSubunitId(event.target.value)}>
-          <option value="">소단원 선택</option>
-          {subunitOptions.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
-        </select>
-        <textarea value={achievementStandard} onChange={(event) => setAchievementStandard(event.target.value)} />
-        <button className="secondary-button" type="button" onClick={saveStandard}>성취기준 저장</button>
+        {subunitOptions.length ? (
+          <>
+            <label>
+              성취기준을 연결할 소단원
+              <select value={standardSubunitId} onChange={(event) => setStandardSubunitId(event.target.value)}>
+                <option value="">소단원 선택</option>
+                {subunitOptions.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
+              </select>
+            </label>
+            {selectedStandardRow ? (
+              <p className="selected-path">
+                선택됨: {selectedStandardRow.gradeName} / {selectedStandardRow.publisherName} / {selectedStandardRow.unitTitle} / {selectedStandardRow.subunitTitle}
+              </p>
+            ) : (
+              <p className="muted">먼저 위 목록에서 소단원을 선택하면 기존 성취기준이 표시됩니다.</p>
+            )}
+            <label>
+              성취기준
+              <textarea
+                value={achievementStandard}
+                onChange={(event) => setAchievementStandard(event.target.value)}
+                placeholder="예: [9수01-...] 성취기준 내용을 입력합니다."
+              />
+            </label>
+            <button className="secondary-button" type="button" onClick={saveStandard} disabled={!standardSubunitId}>
+              성취기준 저장
+            </button>
+          </>
+        ) : (
+          <p className="notice">등록된 소단원이 없습니다. 먼저 단원 정보 등록에서 소단원을 저장해 주세요.</p>
+        )}
       </section>
 
       <section className="panel">
