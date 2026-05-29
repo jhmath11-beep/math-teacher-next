@@ -13,6 +13,19 @@ type PdfPage = {
   text: string;
 };
 
+type InventoryRow = {
+  id: string;
+  gradeName: string;
+  publisherName: string;
+  unitTitle: string;
+  subunitTitle: string;
+  pdfFileName: string;
+  textLength: number;
+  textUpdatedAt: string;
+  hasAchievementStandard: boolean;
+  hasGeneratedContent: boolean;
+};
+
 async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(path, {
     ...options,
@@ -92,6 +105,49 @@ export function AdminDashboard() {
       };
     });
   }, [data]);
+
+  const inventoryRows = useMemo<InventoryRow[]>(() => {
+    if (!data) return [];
+    return data.subunits.map((subunit) => {
+      const unit = data.units.find((item) => item.id === subunit.unitId);
+      const grade = data.grades.find((item) => item.id === unit?.gradeId);
+      const publisher = data.publishers.find((item) => item.id === unit?.publisherId);
+      const pdfText = data.pdfTexts[subunit.id];
+      const generatedContent = data.generated[subunit.id];
+
+      return {
+        id: subunit.id,
+        gradeName: grade?.name || "-",
+        publisherName: publisher?.name || "-",
+        unitTitle: unit?.title || "-",
+        subunitTitle: subunit.title,
+        pdfFileName: pdfText?.fileName || "",
+        textLength: pdfText?.text?.length || 0,
+        textUpdatedAt: pdfText?.updatedAt || "",
+        hasAchievementStandard: Boolean(subunit.achievementStandard?.trim()),
+        hasGeneratedContent: Boolean(generatedContent)
+      };
+    });
+  }, [data]);
+
+  const inventorySummary = useMemo(() => ({
+    subunitCount: inventoryRows.length,
+    pdfTextCount: inventoryRows.filter((row) => row.textLength > 0).length,
+    standardCount: inventoryRows.filter((row) => row.hasAchievementStandard).length,
+    generatedCount: inventoryRows.filter((row) => row.hasGeneratedContent).length
+  }), [inventoryRows]);
+
+  function formatDate(value: string) {
+    if (!value) return "-";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "-";
+    return date.toLocaleString("ko-KR", {
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit"
+    });
+  }
 
   async function refresh() {
     const nextData = await apiRequest<BootstrapData>("/api/bootstrap");
@@ -332,6 +388,76 @@ export function AdminDashboard() {
         <h3>소단원 DB에 저장된 텍스트</h3>
         <textarea value={subunitText} onChange={(event) => setSubunitText(event.target.value)} />
         <button className="secondary-button" type="button" onClick={saveManualText}>소단원 텍스트 다시 저장</button>
+      </section>
+
+      <section className="panel">
+        <div className="section-heading">
+          <div>
+            <h3>등록 현황</h3>
+            <p className="muted">저장된 소단원과 PDF 텍스트, 성취기준, AI 생성 결과를 확인합니다.</p>
+          </div>
+          <button className="secondary-button" type="button" onClick={() => refresh()}>새로고침</button>
+        </div>
+
+        <div className="status-grid">
+          <div className="status-card">
+            <span>소단원</span>
+            <strong>{inventorySummary.subunitCount}</strong>
+          </div>
+          <div className="status-card">
+            <span>PDF 텍스트</span>
+            <strong>{inventorySummary.pdfTextCount}</strong>
+          </div>
+          <div className="status-card">
+            <span>성취기준</span>
+            <strong>{inventorySummary.standardCount}</strong>
+          </div>
+          <div className="status-card">
+            <span>AI 결과</span>
+            <strong>{inventorySummary.generatedCount}</strong>
+          </div>
+        </div>
+
+        {inventoryRows.length ? (
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>학년</th>
+                  <th>출판사</th>
+                  <th>대단원</th>
+                  <th>소단원</th>
+                  <th>PDF 텍스트</th>
+                  <th>성취기준</th>
+                  <th>AI 결과</th>
+                  <th>업데이트</th>
+                </tr>
+              </thead>
+              <tbody>
+                {inventoryRows.map((row) => (
+                  <tr key={row.id}>
+                    <td>{row.gradeName}</td>
+                    <td>{row.publisherName}</td>
+                    <td>{row.unitTitle}</td>
+                    <td>{row.subunitTitle}</td>
+                    <td>
+                      {row.textLength > 0 ? (
+                        <span className="status-ok">{row.pdfFileName || "저장됨"} · {row.textLength.toLocaleString()}자</span>
+                      ) : (
+                        <span className="status-empty">미등록</span>
+                      )}
+                    </td>
+                    <td>{row.hasAchievementStandard ? <span className="status-ok">등록</span> : <span className="status-empty">미등록</span>}</td>
+                    <td>{row.hasGeneratedContent ? <span className="status-ok">생성됨</span> : <span className="status-empty">미생성</span>}</td>
+                    <td>{formatDate(row.textUpdatedAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="notice">아직 등록된 소단원이 없습니다.</p>
+        )}
       </section>
     </div>
   );
