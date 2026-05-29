@@ -93,6 +93,7 @@ export function AdminDashboard() {
   const [rangePreview, setRangePreview] = useState("");
   const [isUploadingPdf, setIsUploadingPdf] = useState(false);
   const [isSavingStandard, setIsSavingStandard] = useState(false);
+  const [showLinkedStandards, setShowLinkedStandards] = useState(false);
   const [pdfInputKey, setPdfInputKey] = useState(0);
 
   const subunitOptions = useMemo(() => {
@@ -143,6 +144,10 @@ export function AdminDashboard() {
   const selectedStandardRow = useMemo(
     () => inventoryRows.find((row) => row.id === standardSubunitId),
     [inventoryRows, standardSubunitId]
+  );
+  const standardSubunitOptions = useMemo(
+    () => subunitOptions.filter((option) => showLinkedStandards || !option.subunit.achievementStandard?.trim()),
+    [showLinkedStandards, subunitOptions]
   );
   const selectedAchievementStandard = useMemo(
     () => achievementStandards.find((standard) => formatAchievementStandard(standard) === achievementStandard),
@@ -451,9 +456,21 @@ export function AdminDashboard() {
                 disabled={isSavingStandard}
               >
                 <option value="">소단원 선택</option>
-                {subunitOptions.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
+                {standardSubunitOptions.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
               </select>
             </label>
+            <label className="inline-check">
+              <input
+                type="checkbox"
+                checked={showLinkedStandards}
+                onChange={(event) => setShowLinkedStandards(event.target.checked)}
+                disabled={isSavingStandard}
+              />
+              이미 성취기준이 연결된 소단원도 보기
+            </label>
+            {!standardSubunitOptions.length ? (
+              <p className="notice">모든 소단원에 성취기준이 연결되어 있습니다.</p>
+            ) : null}
             {selectedStandardRow ? (
               <p className="selected-path">
                 선택됨: {selectedStandardRow.gradeName} / {selectedStandardRow.publisherName} / {selectedStandardRow.unitTitle} / {selectedStandardRow.subunitTitle}
