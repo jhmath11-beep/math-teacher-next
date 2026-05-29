@@ -53,6 +53,7 @@ export function normalizeGeneratedContent(raw: unknown): GeneratedContent {
     examQuestions: asArray(pickValue(data, ["examQuestions", "시험대비문항", "시험 대비 문항"])).map((item) => {
       const row = item && typeof item === "object" ? item as Record<string, unknown> : { question: String(item) };
       return {
+        difficulty: String(row.difficulty || row["난이도"] || ""),
         question: String(row.question || row["문항"] || row["문제"] || ""),
         answer: String(row.answer || row["정답"] || ""),
         solution: String(row.solution || row["풀이 과정"] || row["풀이"] || "")
@@ -71,9 +72,15 @@ export function normalizeGeneratedContent(raw: unknown): GeneratedContent {
       return {
         title: String(row.title || row["활동명"] || row["제목"] || "게임 활동"),
         duration: String(row.duration || row["시간"] || "30~45분"),
+        target: String(row.target || row["활동 목표"] || row["목표"] || ""),
         materials: String(row.materials || row["준비물"] || ""),
-        procedure: String(row.procedure || row["진행 방법"] || ""),
-        variation: String(row.variation || row["변형 방법"] || ""),
+        procedure: Array.isArray(row.procedure || row["진행 방법"])
+          ? (row.procedure || row["진행 방법"]) as string[]
+          : String(row.procedure || row["진행 방법"] || ""),
+        variation: Array.isArray(row.variation || row["변형 방법"])
+          ? (row.variation || row["변형 방법"]) as string[]
+          : String(row.variation || row["변형 방법"] || ""),
+        teacherGuide: String(row.teacherGuide || row["교사용 진행 안내"] || row["교사용 안내"] || ""),
         aiPrompt: String(row.aiPrompt || row["AI 붙여넣기용 프롬프트"] || row["프롬프트"] || "")
       };
     }),
