@@ -243,6 +243,17 @@ textarea {
   line-height: 1.5;
 }
 
+.selected-path {
+  margin: 0;
+  border: 1px solid #dce4ea;
+  border-radius: 8px;
+  padding: 12px;
+  background: #f8fafc;
+  color: #143642;
+  font-weight: 800;
+  line-height: 1.5;
+}
+
 .status-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
