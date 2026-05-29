@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import type { BootstrapData } from "@/types/database";
 
 type Notice = {
@@ -24,6 +25,12 @@ type InventoryRow = {
   textUpdatedAt: string;
   hasAchievementStandard: boolean;
   hasGeneratedContent: boolean;
+};
+
+type PdfUploadTicket = {
+  bucket: string;
+  path: string;
+  token: string;
 };
 
 async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -64,15 +71,6 @@ async function extractPdfPages(file: File): Promise<PdfPage[]> {
   return pages;
 }
 
-async function fileToBase64(file: File) {
-  const buffer = await file.arrayBuffer();
-  let binary = "";
-  new Uint8Array(buffer).forEach((byte) => {
-    binary += String.fromCharCode(byte);
-  });
-  return btoa(binary);
-}
-
 export function AdminDashboard() {
   const [data, setData] = useState<BootstrapData | null>(null);
   const [notice, setNotice] = useState<Notice>({ tone: "normal", message: "" });
@@ -92,6 +90,8 @@ export function AdminDashboard() {
   const [rangeStart, setRangeStart] = useState(1);
   const [rangeEnd, setRangeEnd] = useState(1);
   const [rangePreview, setRangePreview] = useState("");
+  const [isUploadingPdf, setIsUploadingPdf] = useState(false);
+  const [pdfInputKey, setPdfInputKey] = useState(0);
 
   const subunitOptions = useMemo(() => {
     if (!data) return [];
@@ -214,21 +214,46 @@ export function AdminDashboard() {
     }
 
     try {
-      setNotice({ tone: "normal", message: "PDF 텍스트를 추출하고 저장하는 중입니다." });
+      setIsUploadingPdf(true);
+      setNotice({ tone: "normal", message: "업로드중... PDF 텍스트를 추출하는 중입니다." });
       const text = (await extractPdfPages(file)).map((page) => `[p.${page.pageNumber}]\n${page.text}`).join("\n\n");
+
+      setNotice({ tone: "normal", message: "업로드중... PDF 원본을 저장하는 중입니다." });
+      const uploadTicket = await apiRequest<PdfUploadTicket>("/api/pdf-upload-url", {
+        method: "POST",
+        body: JSON.stringify({
+          subunitId: selectedSubunitId,
+          fileName: file.name
+        })
+      });
+
+      const { error: uploadError } = await createSupabaseBrowserClient()
+        .storage
+        .from(uploadTicket.bucket)
+        .uploadToSignedUrl(uploadTicket.path, uploadTicket.token, file, {
+          contentType: "application/pdf"
+        });
+      if (uploadError) throw new Error(uploadError.message);
+
+      setNotice({ tone: "normal", message: "업로드중... 추출 텍스트를 DB에 저장하는 중입니다." });
       await apiRequest("/api/subunit-text", {
         method: "POST",
         body: JSON.stringify({
           subunitId: selectedSubunitId,
           fileName: file.name,
           extractedText: text,
-          pdfBase64: await fileToBase64(file)
+          pdfFilePath: uploadTicket.path
         })
       });
       await refresh();
+      setSelectedSubunitId("");
+      setSubunitText("");
+      setPdfInputKey((prev) => prev + 1);
       setNotice({ tone: "normal", message: "PDF와 추출 텍스트를 저장했습니다." });
     } catch (error) {
       setNotice({ tone: "error", message: error instanceof Error ? error.message : "PDF 저장 실패" });
+    } finally {
+      setIsUploadingPdf(false);
     }
   }
 
@@ -384,9 +409,11 @@ export function AdminDashboard() {
           </label>
           <label>
             PDF 파일
-            <input name="pdfFile" type="file" accept="application/pdf" />
+            <input key={pdfInputKey} name="pdfFile" type="file" accept="application/pdf" disabled={isUploadingPdf} />
           </label>
-          <button className="primary-button" type="submit">PDF 추출 후 저장</button>
+          <button className="primary-button" type="submit" disabled={isUploadingPdf}>
+            {isUploadingPdf ? "업로드중..." : "PDF 추출 후 저장"}
+          </button>
         </form>
       </section>
 
