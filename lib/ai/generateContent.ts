@@ -126,6 +126,10 @@ export async function generateMathContent(input: {
     },
     body: JSON.stringify({
       model,
+      tools: process.env.OPENAI_ENABLE_WEB_SEARCH === "true"
+        ? [{ type: "web_search" }]
+        : undefined,
+      tool_choice: process.env.OPENAI_ENABLE_WEB_SEARCH === "true" ? "auto" : undefined,
       input: buildMathTeacherPrompt(input),
       text: { format: { type: "json_object" } }
     })
