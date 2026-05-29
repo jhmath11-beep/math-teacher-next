@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createSupabaseAdmin } from "@/lib/supabase/admin";
-import { generateMathContent, normalizeGeneratedContent } from "@/lib/ai/generateContent";
+import { generateMathContent, hasGeneratedContent, normalizeGeneratedContent } from "@/lib/ai/generateContent";
 
 export async function POST(request: Request) {
   try {
@@ -18,12 +18,20 @@ export async function POST(request: Request) {
       .maybeSingle();
 
     if (saved) {
-      return NextResponse.json({
-        source: saved.source,
-        content: normalizeGeneratedContent(saved.content),
-        model: saved.model,
-        cached: true
-      });
+      const cachedContent = normalizeGeneratedContent(saved.content);
+      if (!body.force && hasGeneratedContent(cachedContent)) {
+        return NextResponse.json({
+          source: saved.source,
+          content: cachedContent,
+          model: saved.model,
+          cached: true
+        });
+      }
+
+      await supabase
+        .from("math_generated_contents")
+        .delete()
+        .eq("subunit_id", body.subunitId);
     }
 
     const { data: textRow, error: textError } = await supabase
