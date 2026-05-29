@@ -7,12 +7,27 @@ function asArray(value: unknown) {
   return [];
 }
 
+function pickValue(data: Record<string, unknown>, names: string[]) {
+  for (const name of names) {
+    if (data[name] !== undefined) return data[name];
+  }
+
+  const entry = Object.entries(data).find(([key]) =>
+    names.some((name) => key.replace(/\s/g, "").includes(name.replace(/\s/g, "")))
+  );
+  return entry?.[1];
+}
+
+function asRecord(value: unknown) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
 export function normalizeGeneratedContent(raw: unknown): GeneratedContent {
-  const data = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
-  const tips = (data.teacherTips || data["교사용 활용 팁"] || {}) as Record<string, unknown>;
+  const data = asRecord(raw);
+  const tips = asRecord(pickValue(data, ["teacherTips", "교사용 활용 팁", "교사용활용팁", "활용 팁"]));
 
   return {
-    achievementStandards: asArray(data.achievementStandards || data["과목별 단원별 성취기준"]).map((item) => {
+    achievementStandards: asArray(pickValue(data, ["achievementStandards", "과목별 단원별 성취기준", "성취기준"])).map((item) => {
       if (item && typeof item === "object") {
         const row = item as Record<string, unknown>;
         return {
@@ -23,8 +38,8 @@ export function normalizeGeneratedContent(raw: unknown): GeneratedContent {
       }
       return { code: "", description: String(item), relation: "직접 연결" };
     }),
-    summary: asArray(data.summary || data["핵심 개념 요약"]).map(String),
-    checkQuizzes: asArray(data.checkQuizzes || data["확인 퀴즈"]).map((item) => {
+    summary: asArray(pickValue(data, ["summary", "핵심 개념 요약", "핵심개념요약", "개념 요약", "개념요약"])).map(String),
+    checkQuizzes: asArray(pickValue(data, ["checkQuizzes", "확인 퀴즈", "확인퀴즈"])).map((item) => {
       const row = item && typeof item === "object" ? item as Record<string, unknown> : { question: String(item) };
       return {
         difficulty: String(row.difficulty || row["난이도"] || ""),
@@ -35,7 +50,7 @@ export function normalizeGeneratedContent(raw: unknown): GeneratedContent {
         explanation: String(row.explanation || row["해설"] || "")
       };
     }),
-    examQuestions: asArray(data.examQuestions || data["시험대비문항"]).map((item) => {
+    examQuestions: asArray(pickValue(data, ["examQuestions", "시험대비문항", "시험 대비 문항"])).map((item) => {
       const row = item && typeof item === "object" ? item as Record<string, unknown> : { question: String(item) };
       return {
         question: String(row.question || row["문항"] || row["문제"] || ""),
@@ -43,15 +58,15 @@ export function normalizeGeneratedContent(raw: unknown): GeneratedContent {
         solution: String(row.solution || row["풀이 과정"] || row["풀이"] || "")
       };
     }),
-    essayQuestions: asArray(data.essayQuestions || data["논술형 예시 문항"]).map((item) => {
+    essayQuestions: asArray(pickValue(data, ["essayQuestions", "논술형 예시 문항", "논술형예시문항", "논술형 문항"])).map((item) => {
       const row = item && typeof item === "object" ? item as Record<string, unknown> : { question: String(item) };
       return {
         question: String(row.question || row["문항"] || row["문제"] || ""),
         modelAnswer: String(row.modelAnswer || row["모범 답안"] || row["예시 답안"] || "")
       };
     }),
-    rubric: data.rubric || data["논술형 채점 루브릭"] || {},
-    gameActivities: asArray(data.gameActivities || data["게임 활동"] || data["게임 활동 제작용 프롬프트 제작"]).map((item) => {
+    rubric: pickValue(data, ["rubric", "논술형 채점 루브릭", "채점 루브릭", "루브릭"]) || {},
+    gameActivities: asArray(pickValue(data, ["gameActivities", "게임 활동", "게임활동", "게임 활동 제작용 프롬프트 제작"])).map((item) => {
       const row = item && typeof item === "object" ? item as Record<string, unknown> : { title: String(item) };
       return {
         title: String(row.title || row["활동명"] || row["제목"] || "게임 활동"),
@@ -68,6 +83,21 @@ export function normalizeGeneratedContent(raw: unknown): GeneratedContent {
       wrapUp: String(tips.wrapUp || tips["정리"] || "")
     }
   };
+}
+
+export function hasGeneratedContent(content: GeneratedContent) {
+  return Boolean(
+    content.achievementStandards?.length ||
+    content.summary?.length ||
+    content.checkQuizzes?.length ||
+    content.examQuestions?.length ||
+    content.essayQuestions?.length ||
+    content.gameActivities?.length ||
+    content.teacherTips?.intro ||
+    content.teacherTips?.development ||
+    content.teacherTips?.wrapUp ||
+    (content.rubric && typeof content.rubric === "object" && Object.keys(content.rubric).length)
+  );
 }
 
 export async function generateMathContent(input: {
