@@ -117,9 +117,10 @@ export async function saveSubunitText(input: {
   fileName?: string;
   extractedText: string;
   pdfBase64?: string;
+  pdfFilePath?: string;
 }) {
   const supabase = createSupabaseAdmin();
-  let pdfFilePath = "";
+  let pdfFilePath = input.pdfFilePath || "";
 
   if (input.pdfBase64) {
     const objectPath = `subunits/${input.subunitId}/${Date.now()}-original.pdf`;
