@@ -16,6 +16,7 @@ export type GeneratedContent = {
     explanation?: string;
   }>;
   examQuestions: Array<{
+    difficulty?: string;
     question: string;
     answer: string;
     solution: string;
@@ -28,9 +29,11 @@ export type GeneratedContent = {
   gameActivities: Array<{
     title: string;
     duration: string;
+    target?: string;
     materials: string;
-    procedure: string;
-    variation: string;
+    procedure: string | string[];
+    variation: string | string[];
+    teacherGuide?: string;
     aiPrompt: string;
   }>;
   teacherTips: {
