@@ -50,6 +50,7 @@ function contentToText(content: GeneratedContent) {
   lines.push("", "[시험대비문항]");
   (content.examQuestions || []).forEach((item, index) => {
     lines.push(`${index + 1}. ${item.question}`);
+    if (item.difficulty) lines.push(`난이도: ${item.difficulty}`);
     lines.push(`정답: ${item.answer}`);
     lines.push(`풀이 과정: ${item.solution}`);
   });
@@ -64,9 +65,11 @@ function contentToText(content: GeneratedContent) {
   (content.gameActivities || []).forEach((item, index) => {
     lines.push(`${index + 1}. ${item.title}`);
     lines.push(`시간: ${item.duration}`);
+    if (item.target) lines.push(`목표: ${item.target}`);
     lines.push(`준비물: ${item.materials}`);
-    lines.push(`진행 방법: ${item.procedure}`);
-    lines.push(`변형 방법: ${item.variation}`);
+    lines.push(`진행 방법: ${Array.isArray(item.procedure) ? item.procedure.join(" / ") : item.procedure}`);
+    lines.push(`변형 방법: ${Array.isArray(item.variation) ? item.variation.join(" / ") : item.variation}`);
+    if (item.teacherGuide) lines.push(`교사용 안내: ${item.teacherGuide}`);
     lines.push(`AI 붙여넣기용 프롬프트: ${item.aiPrompt}`);
   });
 
@@ -95,6 +98,17 @@ function RubricView({ rubric }: { rubric: unknown }) {
       maxScore: number;
       levels: Array<{ score: number; description: string }>;
     }>;
+    essayRubrics?: Array<{
+      essayQuestionIndex?: number;
+      essayQuestionTitle?: string;
+      rows?: Array<{
+        criterion?: string;
+        maxScore?: number;
+        high?: string;
+        middle?: string;
+        low?: string;
+      }>;
+    }>;
     baseScore?: { submittedBlank?: number; notSubmitted?: number; excusedAbsent?: number };
   };
 
@@ -113,6 +127,38 @@ function RubricView({ rubric }: { rubric: unknown }) {
         <p>중: {data.achievementLevels?.middle}</p>
         <p>하: {data.achievementLevels?.low}</p>
       </div>
+      {(data.essayRubrics || []).map((essayRubric, index) => (
+        <div className="question-card" key={`${essayRubric.essayQuestionIndex}-${index}`}>
+          <strong>
+            논술형 문항 {essayRubric.essayQuestionIndex || index + 1}
+            {essayRubric.essayQuestionTitle ? `: ${essayRubric.essayQuestionTitle}` : ""}
+          </strong>
+          <div className="table-wrap">
+            <table className="data-table rubric-table">
+              <thead>
+                <tr>
+                  <th>평가요소</th>
+                  <th>배점</th>
+                  <th>상</th>
+                  <th>중</th>
+                  <th>하</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(essayRubric.rows || []).map((row) => (
+                  <tr key={row.criterion}>
+                    <td>{row.criterion}</td>
+                    <td>{row.maxScore}점</td>
+                    <td>{row.high}</td>
+                    <td>{row.middle}</td>
+                    <td>{row.low}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ))}
       {(data.scoringRubric || []).map((item) => (
         <div className="question-card" key={item.element}>
           <strong>{item.element} ({item.maxScore}점)</strong>
@@ -190,6 +236,7 @@ function GeneratedContentView({ content }: { content: GeneratedContent }) {
         {(content.examQuestions || []).map((item, index) => (
           <div className="question-card" key={`${item.question}-${index}`}>
             <strong>{index + 1}. {item.question}</strong>
+            {item.difficulty ? <p>난이도: {item.difficulty}</p> : null}
             <p>정답: {item.answer}</p>
             <p>풀이 과정: {item.solution}</p>
           </div>
@@ -217,9 +264,25 @@ function GeneratedContentView({ content }: { content: GeneratedContent }) {
           <div className="question-card" key={`${item.title}-${index}`}>
             <strong>{item.title}</strong>
             <p>시간: {item.duration}</p>
+            {item.target ? <p>목표: {item.target}</p> : null}
             <p>준비물: {item.materials}</p>
-            <p>진행 방법: {item.procedure}</p>
-            <p>변형 방법: {item.variation}</p>
+            <div>
+              <strong>진행 방법</strong>
+              {Array.isArray(item.procedure) ? (
+                <ol>{item.procedure.map((step) => <li key={step}>{step}</li>)}</ol>
+              ) : (
+                <p>{item.procedure}</p>
+              )}
+            </div>
+            <div>
+              <strong>변형 방법</strong>
+              {Array.isArray(item.variation) ? (
+                <ul>{item.variation.map((variation) => <li key={variation}>{variation}</li>)}</ul>
+              ) : (
+                <p>{item.variation}</p>
+              )}
+            </div>
+            {item.teacherGuide ? <p><strong>교사용 안내</strong>: {item.teacherGuide}</p> : null}
             <p><strong>AI 붙여넣기용 프롬프트</strong></p>
             <pre className="prompt-box">{item.aiPrompt}</pre>
           </div>
@@ -275,19 +338,19 @@ export function TeacherDashboard() {
     return data.subunits.filter((subunit) => subunit.unitId === unitId);
   }, [data, unitId]);
 
-  async function generate() {
+  async function generate(force = false) {
     if (!subunitId) {
       setNotice({ tone: "error", message: "소단원을 선택해 주세요." });
       return;
     }
     try {
-      setNotice({ tone: "normal", message: "AI 자료를 불러오거나 생성하는 중입니다." });
+      setNotice({ tone: "normal", message: force ? "기존 결과를 지우고 다시 생성하는 중입니다." : "AI 자료를 불러오거나 생성하는 중입니다." });
       const response = await apiRequest<{
         content: GeneratedContent;
         cached?: boolean;
       }>("/api/generate", {
         method: "POST",
-        body: JSON.stringify({ subunitId })
+        body: JSON.stringify({ subunitId, force })
       });
       setResult({ content: response.content, subunitId });
       setIsEditing(false);
@@ -376,7 +439,8 @@ export function TeacherDashboard() {
           </label>
         </div>
         <div className="action-row">
-          <button className="primary-button" type="button" onClick={generate}>저장 텍스트로 자료 생성</button>
+          <button className="primary-button" type="button" onClick={() => generate(false)}>저장 텍스트로 자료 생성</button>
+          <button className="secondary-button" type="button" onClick={() => generate(true)}>AI 결과 다시 생성</button>
           <button className="secondary-button" type="button" onClick={() => {
             if (!result) return;
             setEditText(JSON.stringify(result.content, null, 2));
