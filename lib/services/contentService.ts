@@ -12,10 +12,10 @@ export async function getBootstrapData(): Promise<BootstrapData> {
   const supabase = createSupabaseAdmin();
 
   const [grades, publishers, units, subunits, texts, generated] = await Promise.all([
-    supabase.from("math_grades").select("*").order("order_index").order("name"),
-    supabase.from("math_publishers").select("*").order("order_index").order("name"),
-    supabase.from("math_units").select("*").order("order_index").order("title"),
-    supabase.from("math_subunits").select("*").order("order_index").order("title"),
+    supabase.from("math_grades").select("*").order("created_at", { ascending: true }),
+    supabase.from("math_publishers").select("*").order("created_at", { ascending: true }),
+    supabase.from("math_units").select("*").order("created_at", { ascending: true }),
+    supabase.from("math_subunits").select("*").order("created_at", { ascending: true }),
     supabase.from("math_subunit_texts").select("*"),
     supabase.from("math_generated_contents").select("*")
   ]);
