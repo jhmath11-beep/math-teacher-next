@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { achievementStandards, formatAchievementStandard } from "@/lib/data/achievementStandards";
 import type { BootstrapData } from "@/types/database";
 
 type Notice = {
@@ -141,6 +142,10 @@ export function AdminDashboard() {
   const selectedStandardRow = useMemo(
     () => inventoryRows.find((row) => row.id === standardSubunitId),
     [inventoryRows, standardSubunitId]
+  );
+  const selectedAchievementStandard = useMemo(
+    () => achievementStandards.find((standard) => formatAchievementStandard(standard) === achievementStandard),
+    [achievementStandard]
   );
 
   function formatDate(value: string) {
@@ -447,13 +452,24 @@ export function AdminDashboard() {
             )}
             <label>
               성취기준
-              <textarea
+              <select
                 value={achievementStandard}
                 onChange={(event) => setAchievementStandard(event.target.value)}
-                placeholder="예: [9수01-...] 성취기준 내용을 입력합니다."
-              />
+              >
+                <option value="">성취기준 선택</option>
+                {achievementStandards.map((standard) => (
+                  <option key={standard.code} value={formatAchievementStandard(standard)}>
+                    [{standard.code}] {standard.text}
+                  </option>
+                ))}
+              </select>
             </label>
-            <button className="secondary-button" type="button" onClick={saveStandard} disabled={!standardSubunitId}>
+            {selectedAchievementStandard ? (
+              <p className="selected-path">
+                선택한 성취기준: [{selectedAchievementStandard.code}] {selectedAchievementStandard.text}
+              </p>
+            ) : null}
+            <button className="secondary-button" type="button" onClick={saveStandard} disabled={!standardSubunitId || !achievementStandard}>
               성취기준 저장
             </button>
           </>
