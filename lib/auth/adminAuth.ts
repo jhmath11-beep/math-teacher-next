@@ -2,17 +2,35 @@ import { cookies } from "next/headers";
 import crypto from "node:crypto";
 
 const cookieName = "math_admin_session";
-const sessions = new Set<string>();
+
+function sessionSecret() {
+  return process.env.APP_ADMIN_PASSWORD || "admin1234";
+}
+
+function signToken(token: string) {
+  return crypto.createHmac("sha256", sessionSecret()).update(token).digest("hex");
+}
+
+function createSignedSessionValue() {
+  const token = crypto.randomUUID();
+  return `${token}.${signToken(token)}`;
+}
+
+function isValidSessionValue(value: string) {
+  const [token, signature] = value.split(".");
+  if (!token || !signature) return false;
+  const expected = signToken(token);
+  if (signature.length !== expected.length) return false;
+  return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
+}
 
 export function isAdminSession() {
   const token = cookies().get(cookieName)?.value;
-  return Boolean(token && sessions.has(token));
+  return Boolean(token && isValidSessionValue(token));
 }
 
 export function createAdminSession() {
-  const token = crypto.randomUUID();
-  sessions.add(token);
-  cookies().set(cookieName, token, {
+  cookies().set(cookieName, createSignedSessionValue(), {
     httpOnly: true,
     sameSite: "lax",
     path: "/",
@@ -21,8 +39,6 @@ export function createAdminSession() {
 }
 
 export function clearAdminSession() {
-  const token = cookies().get(cookieName)?.value;
-  if (token) sessions.delete(token);
   cookies().set(cookieName, "", {
     httpOnly: true,
     sameSite: "lax",
