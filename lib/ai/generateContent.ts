@@ -22,6 +22,24 @@ function asRecord(value: unknown) {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
+function parseJsonLikeText(text: string) {
+  const source = text.trim();
+  try {
+    return JSON.parse(source);
+  } catch {
+    const jsonMatch = source.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error("AI 응답을 JSON으로 해석하지 못했습니다.");
+
+    const jsonText = jsonMatch[0];
+    try {
+      return JSON.parse(jsonText);
+    } catch {
+      const repaired = jsonText.replace(/\\(?!["\\/bfnrtu])/g, "\\\\");
+      return JSON.parse(repaired);
+    }
+  }
+}
+
 export function normalizeGeneratedContent(raw: unknown): GeneratedContent {
   const data = asRecord(raw);
   const tips = asRecord(pickValue(data, ["teacherTips", "교사용 활용 팁", "교사용활용팁", "활용 팁"]));
@@ -164,15 +182,7 @@ export async function generateMathContent(input: {
 
   if (!text) throw new Error("AI response text was empty.");
 
-  const parsed = (() => {
-    try {
-      return JSON.parse(text);
-    } catch {
-      const jsonMatch = text.match(/\{[\s\S]*\}/);
-      if (jsonMatch) return JSON.parse(jsonMatch[0]);
-      throw new Error("AI 응답을 JSON으로 해석하지 못했습니다.");
-    }
-  })();
+  const parsed = parseJsonLikeText(text);
 
   return {
     source: "ai",
@@ -215,13 +225,7 @@ async function callOpenAI(prompt: string) {
 
   if (!text) throw new Error("AI response text was empty.");
 
-  try {
-    return { parsed: JSON.parse(text), model };
-  } catch {
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (jsonMatch) return { parsed: JSON.parse(jsonMatch[0]), model };
-    throw new Error("AI 응답을 JSON으로 해석하지 못했습니다.");
-  }
+  return { parsed: parseJsonLikeText(text), model };
 }
 
 export async function generateFocusedSection(input: {
