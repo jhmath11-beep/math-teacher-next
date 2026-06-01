@@ -230,7 +230,15 @@ function RubricView({ rubric }: { rubric: unknown }) {
   );
 }
 
-function GeneratedContentView({ content }: { content: GeneratedContent }) {
+function GeneratedContentView({
+  content,
+  focusedGenerating,
+  onGenerateSection
+}: {
+  content: GeneratedContent;
+  focusedGenerating: "" | "exam" | "essay" | "game" | "all";
+  onGenerateSection: (section: "exam" | "essay" | "game") => void;
+}) {
   const hasAnyContent = Boolean(
     content.achievementStandards?.length ||
     content.summary?.length ||
@@ -285,7 +293,15 @@ function GeneratedContentView({ content }: { content: GeneratedContent }) {
       </section>
 
       <section className="panel">
-        <h3>시험대비문항</h3>
+        <div className="section-heading">
+          <div>
+            <h3>시험대비문항</h3>
+            <p className="muted">학교 시험형 문항만 깊게 새로 개발할 수 있습니다.</p>
+          </div>
+          <button className="secondary-button" type="button" onClick={() => onGenerateSection("exam")} disabled={focusedGenerating !== ""}>
+            {focusedGenerating === "exam" ? "생성중..." : "시험대비문항 새로 개발"}
+          </button>
+        </div>
         {(content.examQuestions || []).map((item, index) => (
           <div className="question-card" key={`${item.question}-${index}`}>
             <strong>{index + 1}. <Text>{item.question}</Text></strong>
@@ -297,7 +313,15 @@ function GeneratedContentView({ content }: { content: GeneratedContent }) {
       </section>
 
       <section className="panel">
-        <h3>논술형 예시 문항</h3>
+        <div className="section-heading">
+          <div>
+            <h3>논술형 예시 문항</h3>
+            <p className="muted">평가문항지형 논술형 문항과 루브릭을 함께 새로 개발합니다.</p>
+          </div>
+          <button className="secondary-button" type="button" onClick={() => onGenerateSection("essay")} disabled={focusedGenerating !== ""}>
+            {focusedGenerating === "essay" ? "생성중..." : "고품질 논술형 새로 개발"}
+          </button>
+        </div>
         {(content.essayQuestions || []).map((item, index) => (
           <div className="question-card" key={`${item.question}-${index}`}>
             <strong>{index + 1}. <Text>{item.title || item.question}</Text></strong>
@@ -333,7 +357,15 @@ function GeneratedContentView({ content }: { content: GeneratedContent }) {
       </section>
 
       <section className="panel">
-        <h3>게임 활동</h3>
+        <div className="section-heading">
+          <div>
+            <h3>게임 활동</h3>
+            <p className="muted">수업 활동과 바이브코딩용 한글 프롬프트를 새로 개발합니다.</p>
+          </div>
+          <button className="secondary-button" type="button" onClick={() => onGenerateSection("game")} disabled={focusedGenerating !== ""}>
+            {focusedGenerating === "game" ? "생성중..." : "수업 게임활동 새로 개발"}
+          </button>
+        </div>
         {(content.gameActivities || []).map((item, index) => (
           <div className="question-card" key={`${item.title}-${index}`}>
             <strong><Text>{item.title}</Text></strong>
@@ -383,7 +415,7 @@ export function TeacherDashboard() {
   const [result, setResult] = useState<RenderedResult | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState("");
-  const [focusedGenerating, setFocusedGenerating] = useState<"" | "exam" | "essay" | "game">("");
+  const [focusedGenerating, setFocusedGenerating] = useState<"" | "exam" | "essay" | "game" | "all">("");
 
   async function refresh() {
     const nextData = await apiRequest<BootstrapData>("/api/bootstrap");
@@ -472,6 +504,47 @@ export function TeacherDashboard() {
     }
   }
 
+  async function generateFinalPackage() {
+    if (!subunitId) {
+      setNotice({ tone: "error", message: "소단원을 선택해 주세요." });
+      return;
+    }
+
+    try {
+      setFocusedGenerating("all");
+      setNotice({ tone: "normal", message: "최종 고품질 자료를 생성하는 중입니다. 초안 생성 후 시험대비, 논술형, 게임활동을 순서대로 새로 개발합니다." });
+
+      const draft = await apiRequest<{ content: GeneratedContent }>("/api/generate", {
+        method: "POST",
+        body: JSON.stringify({ subunitId, force: true })
+      });
+      let nextContent = draft.content;
+      setResult({ content: nextContent, subunitId });
+
+      for (const section of ["exam", "essay", "game"] as const) {
+        const sectionNames = {
+          exam: "시험대비문항",
+          essay: "논술형 문항과 루브릭",
+          game: "게임활동"
+        };
+        setNotice({ tone: "normal", message: `${sectionNames[section]}을 새로 개발하는 중입니다.` });
+        const response = await apiRequest<{ content: GeneratedContent }>("/api/generate-section", {
+          method: "POST",
+          body: JSON.stringify({ subunitId, section })
+        });
+        nextContent = response.content;
+        setResult({ content: nextContent, subunitId });
+      }
+
+      setNotice({ tone: "normal", message: "최종 고품질 자료를 저장했습니다." });
+      await refresh();
+    } catch (error) {
+      setNotice({ tone: "error", message: error instanceof Error ? error.message : "최종 자료 생성 실패" });
+    } finally {
+      setFocusedGenerating("");
+    }
+  }
+
   async function saveEdit() {
     if (!result) return;
     try {
@@ -547,16 +620,14 @@ export function TeacherDashboard() {
           </label>
         </div>
         <div className="action-row">
-          <button className="primary-button" type="button" onClick={() => generate(false)}>저장 텍스트로 자료 생성</button>
-          <button className="secondary-button" type="button" onClick={() => generate(true)}>AI 결과 다시 생성</button>
-          <button className="secondary-button" type="button" onClick={() => generateSection("exam")} disabled={focusedGenerating !== ""}>
-            {focusedGenerating === "exam" ? "생성중..." : "시험대비문항 새로 개발"}
+          <button className="primary-button" type="button" onClick={() => generate(false)} disabled={focusedGenerating !== ""}>
+            초안 생성
           </button>
-          <button className="secondary-button" type="button" onClick={() => generateSection("essay")} disabled={focusedGenerating !== ""}>
-            {focusedGenerating === "essay" ? "생성중..." : "고품질 논술형 새로 개발"}
+          <button className="secondary-button" type="button" onClick={generateFinalPackage} disabled={focusedGenerating !== ""}>
+            {focusedGenerating === "all" ? "최종 생성중..." : "최종 고품질 자료 생성"}
           </button>
-          <button className="secondary-button" type="button" onClick={() => generateSection("game")} disabled={focusedGenerating !== ""}>
-            {focusedGenerating === "game" ? "생성중..." : "수업 게임활동 새로 개발"}
+          <button className="secondary-button" type="button" onClick={() => generate(true)} disabled={focusedGenerating !== ""}>
+            초안 다시 생성
           </button>
           <button className="secondary-button" type="button" onClick={() => {
             if (!result) return;
@@ -580,7 +651,13 @@ export function TeacherDashboard() {
         </section>
       ) : null}
 
-      {result ? <GeneratedContentView content={result.content} /> : (
+      {result ? (
+        <GeneratedContentView
+          content={result.content}
+          focusedGenerating={focusedGenerating}
+          onGenerateSection={generateSection}
+        />
+      ) : (
         <section className="panel">
           <p>소단원을 선택하고 자료를 생성하면 여기에 결과가 표시됩니다.</p>
         </section>
