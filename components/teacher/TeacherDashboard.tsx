@@ -523,13 +523,13 @@ export function TeacherDashboard() {
           <button className="primary-button" type="button" onClick={() => generate(false)}>저장 텍스트로 자료 생성</button>
           <button className="secondary-button" type="button" onClick={() => generate(true)}>AI 결과 다시 생성</button>
           <button className="secondary-button" type="button" onClick={() => generateSection("exam")} disabled={focusedGenerating !== ""}>
-            {focusedGenerating === "exam" ? "생성중..." : "시험대비문항만 다시 생성"}
+            {focusedGenerating === "exam" ? "생성중..." : "시험대비문항 새로 개발"}
           </button>
           <button className="secondary-button" type="button" onClick={() => generateSection("essay")} disabled={focusedGenerating !== ""}>
-            {focusedGenerating === "essay" ? "생성중..." : "논술형+루브릭만 다시 생성"}
+            {focusedGenerating === "essay" ? "생성중..." : "고품질 논술형 새로 개발"}
           </button>
           <button className="secondary-button" type="button" onClick={() => generateSection("game")} disabled={focusedGenerating !== ""}>
-            {focusedGenerating === "game" ? "생성중..." : "게임활동만 다시 생성"}
+            {focusedGenerating === "game" ? "생성중..." : "수업 게임활동 새로 개발"}
           </button>
           <button className="secondary-button" type="button" onClick={() => {
             if (!result) return;
