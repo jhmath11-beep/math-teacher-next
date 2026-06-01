@@ -61,6 +61,19 @@ function Text({ children }: { children: unknown }) {
   return <>{formatMathText(children)}</>;
 }
 
+function escapeHtml(value: unknown) {
+  return formatMathText(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function listItems(items: unknown[] = []) {
+  return items.map((item) => `<li>${escapeHtml(item)}</li>`).join("");
+}
+
 async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(path, {
     ...options,
@@ -132,6 +145,133 @@ function contentToText(content: GeneratedContent) {
   lines.push(`정리: ${content.teacherTips?.wrapUp || ""}`);
 
   return lines.join("\n");
+}
+
+function contentToWordHtml(content: GeneratedContent) {
+  const essayHtml = (content.essayQuestions || []).map((item, index) => `
+    <h2>논술형 예시 문항 ${index + 1}. ${escapeHtml(item.title || item.question)}</h2>
+    ${item.scenario ? `<p><strong>상황</strong>: ${escapeHtml(item.scenario)}</p>` : ""}
+    ${(item.passages || []).map((passage) => `<p><strong>${escapeHtml(passage.label)}</strong> ${escapeHtml(passage.text)}</p>`).join("")}
+    ${(item.subQuestions || []).map((subQuestion) => `
+      <p><strong>${escapeHtml(subQuestion.number)}</strong> ${escapeHtml(subQuestion.question)}</p>
+      <p><strong>모범 답안</strong>: ${escapeHtml(subQuestion.answer)}</p>
+    `).join("")}
+    ${!item.subQuestions?.length ? `<p><strong>모범 답안</strong>: ${escapeHtml(item.modelAnswer)}</p>` : ""}
+  `).join("");
+
+  const rubric = content.rubric && typeof content.rubric === "object" && !Array.isArray(content.rubric)
+    ? content.rubric as {
+      assessmentAreaName?: string;
+      totalScore?: number;
+      essayRubrics?: Array<{
+        essayQuestionIndex?: number;
+        essayQuestionTitle?: string;
+        rows?: Array<{ criterion?: string; maxScore?: number; high?: string; middle?: string; low?: string }>;
+      }>;
+    }
+    : {};
+
+  const rubricHtml = (rubric.essayRubrics || []).map((essayRubric) => `
+    <h3>논술형 문항 ${essayRubric.essayQuestionIndex || ""} ${escapeHtml(essayRubric.essayQuestionTitle || "")}</h3>
+    <table>
+      <thead>
+        <tr><th>평가요소</th><th>배점</th><th>상</th><th>중</th><th>하</th></tr>
+      </thead>
+      <tbody>
+        ${(essayRubric.rows || []).map((row) => `
+          <tr>
+            <td>${escapeHtml(row.criterion)}</td>
+            <td>${escapeHtml(row.maxScore)}점</td>
+            <td>${escapeHtml(row.high)}</td>
+            <td>${escapeHtml(row.middle)}</td>
+            <td>${escapeHtml(row.low)}</td>
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+  `).join("");
+
+  return `
+    <!doctype html>
+    <html>
+      <head>
+        <meta charset="utf-8" />
+        <title>수학교과 통합 웹앱 생성 자료</title>
+        <style>
+          body { font-family: "Malgun Gothic", "맑은 고딕", Arial, sans-serif; line-height: 1.6; color: #111827; }
+          h1 { font-size: 22pt; }
+          h2 { margin-top: 24px; font-size: 16pt; border-bottom: 1px solid #d1d5db; padding-bottom: 6px; }
+          h3 { margin-top: 18px; font-size: 13pt; }
+          p, li { font-size: 11pt; }
+          table { width: 100%; border-collapse: collapse; margin: 8px 0 16px; }
+          th, td { border: 1px solid #9ca3af; padding: 7px; vertical-align: top; font-size: 10.5pt; }
+          th { background: #eef2f7; }
+          .box { border: 1px solid #d1d5db; padding: 10px; margin: 8px 0; }
+          pre { white-space: pre-wrap; font-family: "Malgun Gothic", "맑은 고딕", Arial, sans-serif; background: #f3f4f6; padding: 10px; }
+        </style>
+      </head>
+      <body>
+        <h1>수학교과 통합 웹앱 생성 자료</h1>
+
+        <h2>과목별 단원별 성취기준</h2>
+        ${(content.achievementStandards || []).map((item) => `<p><strong>${escapeHtml(item.code)}</strong> ${escapeHtml(item.description)} (${escapeHtml(item.relation)})</p>`).join("")}
+
+        <h2>개념 요약</h2>
+        <ul>${listItems(content.summary || [])}</ul>
+
+        <h2>확인 퀴즈</h2>
+        ${(content.checkQuizzes || []).map((item, index) => `
+          <div class="box">
+            <p><strong>${index + 1}. ${escapeHtml(item.question)}</strong></p>
+            <p>난이도: ${escapeHtml(item.difficulty)} / 유형: ${escapeHtml(item.type)}</p>
+            ${item.choices?.length ? `<p>선택지: ${item.choices.map(escapeHtml).join(" / ")}</p>` : ""}
+            <p>정답: ${escapeHtml(item.answer)}</p>
+            ${item.explanation ? `<p>해설: ${escapeHtml(item.explanation)}</p>` : ""}
+          </div>
+        `).join("")}
+
+        <h2>시험대비문항</h2>
+        ${(content.examQuestions || []).map((item, index) => `
+          <div class="box">
+            <p><strong>${index + 1}. ${escapeHtml(item.question)}</strong></p>
+            ${item.difficulty ? `<p>난이도: ${escapeHtml(item.difficulty)}</p>` : ""}
+            <p>정답: ${escapeHtml(item.answer)}</p>
+            <p>풀이 과정: ${escapeHtml(item.solution)}</p>
+          </div>
+        `).join("")}
+
+        <h2>논술형 예시 문항</h2>
+        ${essayHtml}
+
+        <h2>논술형 채점 루브릭</h2>
+        <p><strong>평가 영역명</strong>: ${escapeHtml(rubric.assessmentAreaName || "")}</p>
+        <p><strong>영역 만점</strong>: ${escapeHtml(rubric.totalScore || "")}점</p>
+        ${rubricHtml}
+
+        <h2>게임 활동</h2>
+        ${(content.gameActivities || []).map((item, index) => `
+          <div class="box">
+            <h3>${index + 1}. ${escapeHtml(item.title)}</h3>
+            <p>시간: ${escapeHtml(item.duration)}</p>
+            ${item.target ? `<p>목표: ${escapeHtml(item.target)}</p>` : ""}
+            <p>준비물: ${escapeHtml(item.materials)}</p>
+            <p><strong>진행 방법</strong></p>
+            ${Array.isArray(item.procedure) ? `<ol>${listItems(item.procedure)}</ol>` : `<p>${escapeHtml(item.procedure)}</p>`}
+            <p><strong>변형 방법</strong></p>
+            ${Array.isArray(item.variation) ? `<ul>${listItems(item.variation)}</ul>` : `<p>${escapeHtml(item.variation)}</p>`}
+            ${item.teacherGuide ? `<p><strong>교사용 안내</strong>: ${escapeHtml(item.teacherGuide)}</p>` : ""}
+            <p><strong>AI 붙여넣기용 프롬프트</strong></p>
+            <pre>${escapeHtml(item.aiPrompt)}</pre>
+          </div>
+        `).join("")}
+
+        <h2>교사용 활용 팁</h2>
+        <p><strong>도입</strong>: ${escapeHtml(content.teacherTips?.intro || "")}</p>
+        <p><strong>전개</strong>: ${escapeHtml(content.teacherTips?.development || "")}</p>
+        <p><strong>정리</strong>: ${escapeHtml(content.teacherTips?.wrapUp || "")}</p>
+      </body>
+    </html>
+  `;
 }
 
 function RubricView({ rubric }: { rubric: unknown }) {
@@ -413,8 +553,6 @@ export function TeacherDashboard() {
   const [unitId, setUnitId] = useState("");
   const [subunitId, setSubunitId] = useState("");
   const [result, setResult] = useState<RenderedResult | null>(null);
-  const [isEditing, setIsEditing] = useState(false);
-  const [editText, setEditText] = useState("");
   const [focusedGenerating, setFocusedGenerating] = useState<"" | "exam" | "essay" | "game" | "all">("");
 
   async function refresh() {
@@ -460,7 +598,6 @@ export function TeacherDashboard() {
         body: JSON.stringify({ subunitId, force })
       });
       setResult({ content: response.content, subunitId });
-      setIsEditing(false);
       setNotice({
         tone: "normal",
         message: response.cached ? "저장된 AI 결과를 불러왔습니다." : "AI 생성 결과를 저장했습니다."
@@ -494,7 +631,6 @@ export function TeacherDashboard() {
         body: JSON.stringify({ subunitId, section })
       });
       setResult({ content: response.content, subunitId });
-      setIsEditing(false);
       setNotice({ tone: "normal", message: `${sectionNames[section]}을 다시 생성해 저장했습니다.` });
       await refresh();
     } catch (error) {
@@ -545,26 +681,6 @@ export function TeacherDashboard() {
     }
   }
 
-  async function saveEdit() {
-    if (!result) return;
-    try {
-      const content = JSON.parse(editText) as GeneratedContent;
-      await apiRequest("/api/save-generated", {
-        method: "POST",
-        body: JSON.stringify({ subunitId: result.subunitId, content })
-      });
-      setResult({ ...result, content });
-      setIsEditing(false);
-      setNotice({ tone: "normal", message: "수정 결과를 저장했습니다." });
-      await refresh();
-    } catch (error) {
-      setNotice({
-        tone: "error",
-        message: error instanceof SyntaxError ? "JSON 형식을 확인해 주세요." : error instanceof Error ? error.message : "저장 실패"
-      });
-    }
-  }
-
   async function copyResult() {
     if (!result) {
       setNotice({ tone: "error", message: "복사할 결과가 없습니다." });
@@ -572,6 +688,28 @@ export function TeacherDashboard() {
     }
     await navigator.clipboard.writeText(contentToText(result.content));
     setNotice({ tone: "normal", message: "결과를 클립보드에 복사했습니다." });
+  }
+
+  function exportWord() {
+    if (!result) {
+      setNotice({ tone: "error", message: "내보낼 결과가 없습니다." });
+      return;
+    }
+
+    const selectedSubunit = data?.subunits.find((item) => item.id === result.subunitId);
+    const fileName = `${selectedSubunit?.title || "수학_수업자료"}.doc`;
+    const blob = new Blob(["\ufeff", contentToWordHtml(result.content)], {
+      type: "application/msword;charset=utf-8"
+    });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = fileName;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+    setNotice({ tone: "normal", message: "Word 파일로 내보냈습니다." });
   }
 
   return (
@@ -629,27 +767,12 @@ export function TeacherDashboard() {
           <button className="secondary-button" type="button" onClick={() => generate(true)} disabled={focusedGenerating !== ""}>
             초안 다시 생성
           </button>
-          <button className="secondary-button" type="button" onClick={() => {
-            if (!result) return;
-            setEditText(JSON.stringify(result.content, null, 2));
-            setIsEditing(true);
-          }}>편집</button>
+          <button className="secondary-button" type="button" onClick={exportWord}>워드로 내보내기</button>
           <button className="secondary-button" type="button" onClick={copyResult}>결과 복사</button>
           <button className="secondary-button" type="button" onClick={() => window.print()}>인쇄</button>
         </div>
         <p className={`notice ${notice.tone === "error" ? "notice-error" : ""}`}>{notice.message}</p>
       </section>
-
-      {isEditing ? (
-        <section className="panel">
-          <h3>생성 결과 JSON 편집</h3>
-          <textarea className="json-editor" value={editText} onChange={(event) => setEditText(event.target.value)} />
-          <div className="action-row">
-            <button className="primary-button" type="button" onClick={saveEdit}>수정 저장</button>
-            <button className="secondary-button" type="button" onClick={() => setIsEditing(false)}>편집 취소</button>
-          </div>
-        </section>
-      ) : null}
 
       {result ? (
         <GeneratedContentView
