@@ -356,6 +356,7 @@ export function TeacherDashboard() {
   const [result, setResult] = useState<RenderedResult | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState("");
+  const [focusedGenerating, setFocusedGenerating] = useState<"" | "exam" | "essay" | "game">("");
 
   async function refresh() {
     const nextData = await apiRequest<BootstrapData>("/api/bootstrap");
@@ -408,6 +409,39 @@ export function TeacherDashboard() {
       await refresh();
     } catch (error) {
       setNotice({ tone: "error", message: error instanceof Error ? error.message : "생성 실패" });
+    }
+  }
+
+  async function generateSection(section: "exam" | "essay" | "game") {
+    if (!subunitId) {
+      setNotice({ tone: "error", message: "소단원을 선택해 주세요." });
+      return;
+    }
+
+    const sectionNames = {
+      exam: "시험대비문항",
+      essay: "논술형 문항과 루브릭",
+      game: "게임활동"
+    };
+
+    try {
+      setFocusedGenerating(section);
+      setNotice({ tone: "normal", message: `${sectionNames[section]}만 깊게 다시 생성하는 중입니다.` });
+      const response = await apiRequest<{
+        content: GeneratedContent;
+        section: string;
+      }>("/api/generate-section", {
+        method: "POST",
+        body: JSON.stringify({ subunitId, section })
+      });
+      setResult({ content: response.content, subunitId });
+      setIsEditing(false);
+      setNotice({ tone: "normal", message: `${sectionNames[section]}을 다시 생성해 저장했습니다.` });
+      await refresh();
+    } catch (error) {
+      setNotice({ tone: "error", message: error instanceof Error ? error.message : "섹션 생성 실패" });
+    } finally {
+      setFocusedGenerating("");
     }
   }
 
@@ -488,6 +522,15 @@ export function TeacherDashboard() {
         <div className="action-row">
           <button className="primary-button" type="button" onClick={() => generate(false)}>저장 텍스트로 자료 생성</button>
           <button className="secondary-button" type="button" onClick={() => generate(true)}>AI 결과 다시 생성</button>
+          <button className="secondary-button" type="button" onClick={() => generateSection("exam")} disabled={focusedGenerating !== ""}>
+            {focusedGenerating === "exam" ? "생성중..." : "시험대비문항만 다시 생성"}
+          </button>
+          <button className="secondary-button" type="button" onClick={() => generateSection("essay")} disabled={focusedGenerating !== ""}>
+            {focusedGenerating === "essay" ? "생성중..." : "논술형+루브릭만 다시 생성"}
+          </button>
+          <button className="secondary-button" type="button" onClick={() => generateSection("game")} disabled={focusedGenerating !== ""}>
+            {focusedGenerating === "game" ? "생성중..." : "게임활동만 다시 생성"}
+          </button>
           <button className="secondary-button" type="button" onClick={() => {
             if (!result) return;
             setEditText(JSON.stringify(result.content, null, 2));
