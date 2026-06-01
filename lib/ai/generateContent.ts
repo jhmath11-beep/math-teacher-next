@@ -62,6 +62,23 @@ export function normalizeGeneratedContent(raw: unknown): GeneratedContent {
     essayQuestions: asArray(pickValue(data, ["essayQuestions", "논술형 예시 문항", "논술형예시문항", "논술형 문항"])).map((item) => {
       const row = item && typeof item === "object" ? item as Record<string, unknown> : { question: String(item) };
       return {
+        title: String(row.title || row["제목"] || ""),
+        scenario: String(row.scenario || row["상황"] || row["상황 맥락"] || ""),
+        passages: asArray(row.passages || row["제시문"]).map((passage) => {
+          const passageRow = passage && typeof passage === "object" ? passage as Record<string, unknown> : {};
+          return {
+            label: String(passageRow.label || passageRow["기호"] || ""),
+            text: String(passageRow.text || passageRow["내용"] || passage)
+          };
+        }),
+        subQuestions: asArray(row.subQuestions || row["소문항"]).map((subQuestion) => {
+          const subRow = subQuestion && typeof subQuestion === "object" ? subQuestion as Record<string, unknown> : {};
+          return {
+            number: String(subRow.number || subRow["번호"] || ""),
+            question: String(subRow.question || subRow["문항"] || subRow["문제"] || subQuestion),
+            answer: String(subRow.answer || subRow["정답"] || subRow["모범 답안"] || "")
+          };
+        }),
         question: String(row.question || row["문항"] || row["문제"] || ""),
         modelAnswer: String(row.modelAnswer || row["모범 답안"] || row["예시 답안"] || "")
       };

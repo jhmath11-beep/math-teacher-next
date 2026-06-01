@@ -49,11 +49,11 @@ export function buildMathTeacherPrompt(input: {
     "- 풀이 과정은 학생이 따라 쓸 수 있도록 단계별로 제시",
     "",
     "4. 논술형 예시 문항",
-    "- 서술 과정이 드러나는 문항 2개",
-    "- 모범 답안 포함",
-    "- 교과서 개념을 바탕으로 하되 설명, 정당화, 비교, 오류 분석 중 적어도 하나를 요구",
-    "- 학생이 계산 결과만 쓰면 만점을 받을 수 없도록 사고 과정과 근거를 요구",
-    "- 모범 답안은 채점자가 바로 기준으로 삼을 수 있도록 문장형 풀이로 자세히 작성",
+    "- 실제 평가문항지처럼 상황 맥락, 제시문, 소문항이 있는 대문항 형태로 작성",
+    "- 각 대문항은 scenario, passages, subQuestions, modelAnswer를 포함",
+    "- 제시문은 (가), (나), (다)처럼 핵심 개념 또는 조건을 제공",
+    "- 소문항은 (1), (2) 형태로 구성하고, '근거로 논술하시오', '과정을 설명하시오'처럼 서술을 요구",
+    "- 계산 결과만 쓰면 만점을 받을 수 없도록 사고 과정과 근거를 요구",
     "",
     "5. 논술형 채점 루브릭",
     "- 바로 위의 논술형 예시 문항 2개 각각에 대한 루브릭을 제시",
@@ -116,7 +116,21 @@ export function buildMathTeacherPrompt(input: {
         { difficulty: "어려움", question: "시험대비문항", answer: "정답", solution: "풀이 과정" }
       ],
       essayQuestions: [
-        { question: "논술형 문항", modelAnswer: "모범 답안" }
+        {
+          title: "평가문항 제목",
+          scenario: "실생활 또는 학문적 상황 맥락",
+          passages: [
+            { label: "(가)", text: "핵심 개념 또는 조건" },
+            { label: "(나)", text: "핵심 개념 또는 조건" },
+            { label: "(다)", text: "핵심 개념 또는 조건" }
+          ],
+          subQuestions: [
+            { number: "(1)", question: "제시문을 근거로 논술할 소문항", answer: "소문항 모범 답안" },
+            { number: "(2)", question: "과정을 설명할 소문항", answer: "소문항 모범 답안" }
+          ],
+          question: "문항지에 표시할 전체 문항",
+          modelAnswer: "전체 모범 답안"
+        }
       ],
       rubric: {
         assessmentAreaName: "평가 영역명",
@@ -230,19 +244,37 @@ export function buildFocusedSectionPrompt(input: {
       "",
       "논술형 예시 문항과 그 문항별 루브릭만 고품질로 다시 생성하세요.",
       "- essayQuestions 배열과 rubric 객체만 반환하세요.",
-      "- 논술형 문항은 3문항 생성하세요.",
+      "- 논술형 대문항은 2개 생성하세요.",
+      "- 각 대문항은 실제 평가문항지처럼 다음 구조를 가져야 합니다: ① 실생활 또는 학문적 상황 맥락 ② 제시문 (가)(나)(다) ③ 소문항 (1)(2) ④ 각 소문항별 모범 답안.",
+      "- 첨부 평가문항지의 방향처럼, 예를 들어 '컴퓨터 신호 처리', '공정 무역 마을'과 같이 단원 개념을 적용할 수 있는 구체적 상황을 먼저 제시하세요.",
+      "- 제시문 (가)(나)(다)는 문제 해결에 필요한 수학적 사실, 조건, 원리를 짧고 명확하게 제공하세요.",
+      "- 소문항 (1)은 조건을 해석하고 값을 구하거나 범위를 판단하게 하세요.",
+      "- 소문항 (2)는 원리 적용 과정, 변환 과정, 판단 근거를 논술하게 하세요.",
       "- 기존 논술형 문항을 보완하지 말고 완전히 새로운 논술형 평가 문항을 개발하세요.",
-      "- 각 문항은 설명, 정당화, 비교, 오류 분석, 일반화 중 적어도 하나를 요구해야 합니다.",
-      "- 계산 결과만 쓰면 만점을 받을 수 없도록 발문을 설계하세요.",
-      "- 모범 답안은 채점 기준으로 바로 사용할 수 있게 문장형으로 자세히 작성하세요.",
-      "- rubric.essayRubrics는 문항별로 제공하고, 각 문항마다 평가요소 4개 이상을 포함하세요.",
-      "- 평가요소에는 개념 이해, 풀이 과정, 표현의 정확성, 수학적 추론을 반드시 포함하세요.",
+      "- 계산 결과만 쓰면 만점을 받을 수 없도록 '제시문을 근거로', '과정을 논술하시오', '이유를 설명하시오'를 발문에 포함하세요.",
+      "- 모범 답안은 각 소문항별로 채점자가 바로 사용할 수 있게 단계별 문장형 풀이로 자세히 작성하세요.",
+      "- rubric.essayRubrics는 대문항별로 제공하고, 각 대문항마다 평가요소 4개 이상을 포함하세요.",
+      "- 평가요소에는 제시문 해석, 개념 이해, 풀이 과정, 수학적 추론, 표현의 정확성 중 4개 이상을 포함하세요.",
       "- high/middle/low 기준에는 부분점수와 감점 요인을 구체적으로 쓰세요.",
       "",
       "JSON 구조:",
       JSON.stringify({
         essayQuestions: [
-          { question: "논술형 문항", modelAnswer: "자세한 모범 답안" }
+          {
+            title: "대문항 제목",
+            scenario: "상황 맥락",
+            passages: [
+              { label: "(가)", text: "문제 해결에 필요한 수학적 사실" },
+              { label: "(나)", text: "문제 해결에 필요한 조건" },
+              { label: "(다)", text: "문제 해결에 필요한 원리" }
+            ],
+            subQuestions: [
+              { number: "(1)", question: "제시문을 근거로 논술할 소문항", answer: "소문항별 모범 답안" },
+              { number: "(2)", question: "과정을 설명할 소문항", answer: "소문항별 모범 답안" }
+            ],
+            question: "문항지에 표시할 전체 문항",
+            modelAnswer: "전체 모범 답안"
+          }
         ],
         rubric: {
           assessmentAreaName: "논술형 평가",
@@ -255,10 +287,11 @@ export function buildFocusedSectionPrompt(input: {
               essayQuestionIndex: 1,
               essayQuestionTitle: "문항 요약",
               rows: [
-                { criterion: "개념 이해", maxScore: 6, high: "상 기준", middle: "중 기준", low: "하 기준" },
-                { criterion: "풀이 과정", maxScore: 6, high: "상 기준", middle: "중 기준", low: "하 기준" },
-                { criterion: "수학적 추론", maxScore: 5, high: "상 기준", middle: "중 기준", low: "하 기준" },
-                { criterion: "표현의 정확성", maxScore: 3, high: "상 기준", middle: "중 기준", low: "하 기준" }
+                { criterion: "제시문 해석", maxScore: 4, high: "4점 기준", middle: "2~3점 기준", low: "0~1점 기준" },
+                { criterion: "개념 이해", maxScore: 5, high: "5점 기준", middle: "3~4점 기준", low: "0~2점 기준" },
+                { criterion: "풀이 과정", maxScore: 5, high: "5점 기준", middle: "3~4점 기준", low: "0~2점 기준" },
+                { criterion: "수학적 추론", maxScore: 4, high: "4점 기준", middle: "2~3점 기준", low: "0~1점 기준" },
+                { criterion: "표현의 정확성", maxScore: 2, high: "2점 기준", middle: "1점 기준", low: "0점 기준" }
               ]
             }
           ],
