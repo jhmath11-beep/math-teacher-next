@@ -22,6 +22,10 @@ export type GeneratedContent = {
     solution: string;
   }>;
   essayQuestions: Array<{
+    title?: string;
+    scenario?: string;
+    passages?: Array<{ label: string; text: string }>;
+    subQuestions?: Array<{ number: string; question: string; answer: string }>;
     question: string;
     modelAnswer: string;
   }>;
