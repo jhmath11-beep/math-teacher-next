@@ -212,7 +212,6 @@ export async function generateFocusedSection(input: {
   extractedText: string;
   achievementStandard?: string;
   section: "exam" | "essay" | "game";
-  currentContent?: unknown;
 }) {
   const { parsed, model } = await callOpenAI(buildFocusedSectionPrompt(input));
   const normalized = normalizeGeneratedContent(parsed);
