@@ -14,6 +14,53 @@ type RenderedResult = {
   subunitId: string;
 };
 
+const superscripts: Record<string, string> = {
+  "0": "⁰",
+  "1": "¹",
+  "2": "²",
+  "3": "³",
+  "4": "⁴",
+  "5": "⁵",
+  "6": "⁶",
+  "7": "⁷",
+  "8": "⁸",
+  "9": "⁹",
+  "+": "⁺",
+  "-": "⁻"
+};
+
+const subscripts: Record<string, string> = {
+  "0": "₀",
+  "1": "₁",
+  "2": "₂",
+  "3": "₃",
+  "4": "₄",
+  "5": "₅",
+  "6": "₆",
+  "7": "₇",
+  "8": "₈",
+  "9": "₉",
+  "+": "₊",
+  "-": "₋"
+};
+
+function toScript(value: string, map: Record<string, string>) {
+  return value.split("").map((char) => map[char] || char).join("");
+}
+
+function formatMathText(value: unknown) {
+  return String(value ?? "")
+    .replace(/\^([+-]?\d+)/g, (_, exponent: string) => toScript(exponent, superscripts))
+    .replace(/_([+-]?\d+)/g, (_, subscript: string) => toScript(subscript, subscripts))
+    .replace(/\*/g, "×")
+    .replace(/<=/g, "≤")
+    .replace(/>=/g, "≥");
+}
+
+function Text({ children }: { children: unknown }) {
+  return <>{formatMathText(children)}</>;
+}
+
 async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(path, {
     ...options,
@@ -35,42 +82,42 @@ function contentToText(content: GeneratedContent) {
   });
 
   lines.push("", "[개념 요약]");
-  (content.summary || []).forEach((item) => lines.push(`- ${item}`));
+  (content.summary || []).forEach((item) => lines.push(`- ${formatMathText(item)}`));
 
   lines.push("", "[확인 퀴즈]");
   (content.checkQuizzes || []).forEach((item, index) => {
-    lines.push(`${index + 1}. ${item.question}`);
+    lines.push(`${index + 1}. ${formatMathText(item.question)}`);
     lines.push(`난이도: ${item.difficulty}`);
     lines.push(`유형: ${item.type}`);
-    if (item.choices?.length) lines.push(`선택지: ${item.choices.join(" / ")}`);
-    lines.push(`정답: ${item.answer}`);
-    if (item.explanation) lines.push(`해설: ${item.explanation}`);
+    if (item.choices?.length) lines.push(`선택지: ${item.choices.map(formatMathText).join(" / ")}`);
+    lines.push(`정답: ${formatMathText(item.answer)}`);
+    if (item.explanation) lines.push(`해설: ${formatMathText(item.explanation)}`);
   });
 
   lines.push("", "[시험대비문항]");
   (content.examQuestions || []).forEach((item, index) => {
-    lines.push(`${index + 1}. ${item.question}`);
+    lines.push(`${index + 1}. ${formatMathText(item.question)}`);
     if (item.difficulty) lines.push(`난이도: ${item.difficulty}`);
-    lines.push(`정답: ${item.answer}`);
-    lines.push(`풀이 과정: ${item.solution}`);
+    lines.push(`정답: ${formatMathText(item.answer)}`);
+    lines.push(`풀이 과정: ${formatMathText(item.solution)}`);
   });
 
   lines.push("", "[논술형 예시 문항]");
   (content.essayQuestions || []).forEach((item, index) => {
-    lines.push(`${index + 1}. ${item.question}`);
-    lines.push(`모범 답안: ${item.modelAnswer}`);
+    lines.push(`${index + 1}. ${formatMathText(item.question)}`);
+    lines.push(`모범 답안: ${formatMathText(item.modelAnswer)}`);
   });
 
   lines.push("", "[게임 활동]");
   (content.gameActivities || []).forEach((item, index) => {
-    lines.push(`${index + 1}. ${item.title}`);
+    lines.push(`${index + 1}. ${formatMathText(item.title)}`);
     lines.push(`시간: ${item.duration}`);
-    if (item.target) lines.push(`목표: ${item.target}`);
-    lines.push(`준비물: ${item.materials}`);
-    lines.push(`진행 방법: ${Array.isArray(item.procedure) ? item.procedure.join(" / ") : item.procedure}`);
-    lines.push(`변형 방법: ${Array.isArray(item.variation) ? item.variation.join(" / ") : item.variation}`);
-    if (item.teacherGuide) lines.push(`교사용 안내: ${item.teacherGuide}`);
-    lines.push(`AI 붙여넣기용 프롬프트: ${item.aiPrompt}`);
+    if (item.target) lines.push(`목표: ${formatMathText(item.target)}`);
+    lines.push(`준비물: ${formatMathText(item.materials)}`);
+    lines.push(`진행 방법: ${formatMathText(Array.isArray(item.procedure) ? item.procedure.join(" / ") : item.procedure)}`);
+    lines.push(`변형 방법: ${formatMathText(Array.isArray(item.variation) ? item.variation.join(" / ") : item.variation)}`);
+    if (item.teacherGuide) lines.push(`교사용 안내: ${formatMathText(item.teacherGuide)}`);
+    lines.push(`AI 붙여넣기용 프롬프트: ${formatMathText(item.aiPrompt)}`);
   });
 
   lines.push("", "[교사용 활용 팁]");
@@ -114,7 +161,7 @@ function RubricView({ rubric }: { rubric: unknown }) {
 
   return (
     <div className="stack-sm">
-      <p><strong>평가 영역명</strong>: {data.assessmentAreaName}</p>
+      <p><strong>평가 영역명</strong>: <Text>{data.assessmentAreaName}</Text></p>
       <p><strong>영역 만점</strong>: {data.totalScore}점</p>
       <p><strong>평가방법</strong>: {(data.assessmentMethods || []).join(" / ")}</p>
       <div>
@@ -123,15 +170,15 @@ function RubricView({ rubric }: { rubric: unknown }) {
       </div>
       <div>
         <strong>평가기준</strong>
-        <p>상: {data.achievementLevels?.high}</p>
-        <p>중: {data.achievementLevels?.middle}</p>
-        <p>하: {data.achievementLevels?.low}</p>
+        <p>상: <Text>{data.achievementLevels?.high}</Text></p>
+        <p>중: <Text>{data.achievementLevels?.middle}</Text></p>
+        <p>하: <Text>{data.achievementLevels?.low}</Text></p>
       </div>
       {(data.essayRubrics || []).map((essayRubric, index) => (
         <div className="question-card" key={`${essayRubric.essayQuestionIndex}-${index}`}>
           <strong>
             논술형 문항 {essayRubric.essayQuestionIndex || index + 1}
-            {essayRubric.essayQuestionTitle ? `: ${essayRubric.essayQuestionTitle}` : ""}
+            {essayRubric.essayQuestionTitle ? <>: <Text>{essayRubric.essayQuestionTitle}</Text></> : ""}
           </strong>
           <div className="table-wrap">
             <table className="data-table rubric-table">
@@ -147,11 +194,11 @@ function RubricView({ rubric }: { rubric: unknown }) {
               <tbody>
                 {(essayRubric.rows || []).map((row) => (
                   <tr key={row.criterion}>
-                    <td>{row.criterion}</td>
+                    <td><Text>{row.criterion}</Text></td>
                     <td>{row.maxScore}점</td>
-                    <td>{row.high}</td>
-                    <td>{row.middle}</td>
-                    <td>{row.low}</td>
+                    <td><Text>{row.high}</Text></td>
+                    <td><Text>{row.middle}</Text></td>
+                    <td><Text>{row.low}</Text></td>
                   </tr>
                 ))}
               </tbody>
@@ -161,9 +208,9 @@ function RubricView({ rubric }: { rubric: unknown }) {
       ))}
       {(data.scoringRubric || []).map((item) => (
         <div className="question-card" key={item.element}>
-          <strong>{item.element} ({item.maxScore}점)</strong>
+          <strong><Text>{item.element}</Text> ({item.maxScore}점)</strong>
           {(item.levels || []).map((level) => (
-            <p key={level.score}>{level.score}점: {level.description}</p>
+            <p key={level.score}>{level.score}점: <Text>{level.description}</Text></p>
           ))}
         </div>
       ))}
@@ -207,7 +254,7 @@ function GeneratedContentView({ content }: { content: GeneratedContent }) {
         {(content.achievementStandards || []).map((item) => (
           <div className="question-card" key={`${item.code}-${item.description}`}>
             <strong>{item.code}</strong>
-            <p>{item.description}</p>
+            <p><Text>{item.description}</Text></p>
             <span className="badge">{item.relation}</span>
           </div>
         ))}
@@ -215,18 +262,18 @@ function GeneratedContentView({ content }: { content: GeneratedContent }) {
 
       <section className="panel">
         <h3>개념 요약</h3>
-        <ul>{(content.summary || []).map((item) => <li key={item}>{item}</li>)}</ul>
+        <ul>{(content.summary || []).map((item) => <li key={item}><Text>{item}</Text></li>)}</ul>
       </section>
 
       <section className="panel">
         <h3>확인 퀴즈</h3>
         {(content.checkQuizzes || []).map((item, index) => (
           <div className="question-card" key={`${item.question}-${index}`}>
-            <strong>{index + 1}. {item.question}</strong>
+            <strong>{index + 1}. <Text>{item.question}</Text></strong>
             <p>난이도: {item.difficulty} / 유형: {item.type}</p>
-            {item.choices?.length ? <p>선택지: {item.choices.join(" / ")}</p> : null}
-            <p>정답: {item.answer}</p>
-            {item.explanation ? <p>해설: {item.explanation}</p> : null}
+            {item.choices?.length ? <p>선택지: <Text>{item.choices.join(" / ")}</Text></p> : null}
+            <p>정답: <Text>{item.answer}</Text></p>
+            {item.explanation ? <p>해설: <Text>{item.explanation}</Text></p> : null}
           </div>
         ))}
       </section>
@@ -235,10 +282,10 @@ function GeneratedContentView({ content }: { content: GeneratedContent }) {
         <h3>시험대비문항</h3>
         {(content.examQuestions || []).map((item, index) => (
           <div className="question-card" key={`${item.question}-${index}`}>
-            <strong>{index + 1}. {item.question}</strong>
+            <strong>{index + 1}. <Text>{item.question}</Text></strong>
             {item.difficulty ? <p>난이도: {item.difficulty}</p> : null}
-            <p>정답: {item.answer}</p>
-            <p>풀이 과정: {item.solution}</p>
+            <p>정답: <Text>{item.answer}</Text></p>
+            <p>풀이 과정: <Text>{item.solution}</Text></p>
           </div>
         ))}
       </section>
@@ -247,8 +294,8 @@ function GeneratedContentView({ content }: { content: GeneratedContent }) {
         <h3>논술형 예시 문항</h3>
         {(content.essayQuestions || []).map((item, index) => (
           <div className="question-card" key={`${item.question}-${index}`}>
-            <strong>{index + 1}. {item.question}</strong>
-            <p>모범 답안: {item.modelAnswer}</p>
+            <strong>{index + 1}. <Text>{item.question}</Text></strong>
+            <p>모범 답안: <Text>{item.modelAnswer}</Text></p>
           </div>
         ))}
       </section>
@@ -262,38 +309,38 @@ function GeneratedContentView({ content }: { content: GeneratedContent }) {
         <h3>게임 활동</h3>
         {(content.gameActivities || []).map((item, index) => (
           <div className="question-card" key={`${item.title}-${index}`}>
-            <strong>{item.title}</strong>
+            <strong><Text>{item.title}</Text></strong>
             <p>시간: {item.duration}</p>
-            {item.target ? <p>목표: {item.target}</p> : null}
-            <p>준비물: {item.materials}</p>
+            {item.target ? <p>목표: <Text>{item.target}</Text></p> : null}
+            <p>준비물: <Text>{item.materials}</Text></p>
             <div>
               <strong>진행 방법</strong>
               {Array.isArray(item.procedure) ? (
-                <ol>{item.procedure.map((step) => <li key={step}>{step}</li>)}</ol>
+                <ol>{item.procedure.map((step) => <li key={step}><Text>{step}</Text></li>)}</ol>
               ) : (
-                <p>{item.procedure}</p>
+                <p><Text>{item.procedure}</Text></p>
               )}
             </div>
             <div>
               <strong>변형 방법</strong>
               {Array.isArray(item.variation) ? (
-                <ul>{item.variation.map((variation) => <li key={variation}>{variation}</li>)}</ul>
+                <ul>{item.variation.map((variation) => <li key={variation}><Text>{variation}</Text></li>)}</ul>
               ) : (
-                <p>{item.variation}</p>
+                <p><Text>{item.variation}</Text></p>
               )}
             </div>
-            {item.teacherGuide ? <p><strong>교사용 안내</strong>: {item.teacherGuide}</p> : null}
+            {item.teacherGuide ? <p><strong>교사용 안내</strong>: <Text>{item.teacherGuide}</Text></p> : null}
             <p><strong>AI 붙여넣기용 프롬프트</strong></p>
-            <pre className="prompt-box">{item.aiPrompt}</pre>
+            <pre className="prompt-box">{formatMathText(item.aiPrompt)}</pre>
           </div>
         ))}
       </section>
 
       <section className="panel">
         <h3>교사용 활용 팁</h3>
-        <p><strong>도입</strong>: {content.teacherTips?.intro}</p>
-        <p><strong>전개</strong>: {content.teacherTips?.development}</p>
-        <p><strong>정리</strong>: {content.teacherTips?.wrapUp}</p>
+        <p><strong>도입</strong>: <Text>{content.teacherTips?.intro}</Text></p>
+        <p><strong>전개</strong>: <Text>{content.teacherTips?.development}</Text></p>
+        <p><strong>정리</strong>: <Text>{content.teacherTips?.wrapUp}</Text></p>
       </section>
     </div>
   );
