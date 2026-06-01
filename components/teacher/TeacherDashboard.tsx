@@ -70,8 +70,256 @@ function escapeHtml(value: unknown) {
     .replace(/'/g, "&#039;");
 }
 
+function escapeXml(value: unknown) {
+  return formatMathText(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
 function listItems(items: unknown[] = []) {
   return items.map((item) => `<li>${escapeHtml(item)}</li>`).join("");
+}
+
+function docxText(value: unknown) {
+  return `<w:r><w:t xml:space="preserve">${escapeXml(value)}</w:t></w:r>`;
+}
+
+function docxParagraph(value: unknown, options: { bold?: boolean; size?: number; heading?: boolean } = {}) {
+  const size = options.size || (options.heading ? 28 : 22);
+  return `
+    <w:p>
+      <w:pPr>
+        <w:spacing w:after="${options.heading ? 180 : 80}" />
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          ${options.bold || options.heading ? "<w:b />" : ""}
+          <w:sz w:val="${size}" />
+        </w:rPr>
+        <w:t xml:space="preserve">${escapeXml(value)}</w:t>
+      </w:r>
+    </w:p>
+  `;
+}
+
+function docxBullet(value: unknown) {
+  return docxParagraph(`- ${formatMathText(value)}`);
+}
+
+function docxCell(value: unknown) {
+  return `
+    <w:tc>
+      <w:tcPr><w:tcW w:w="2200" w:type="dxa" /></w:tcPr>
+      ${docxParagraph(value)}
+    </w:tc>
+  `;
+}
+
+function docxTable(rows: unknown[][]) {
+  return `
+    <w:tbl>
+      <w:tblPr>
+        <w:tblBorders>
+          <w:top w:val="single" w:sz="4" w:space="0" w:color="888888" />
+          <w:left w:val="single" w:sz="4" w:space="0" w:color="888888" />
+          <w:bottom w:val="single" w:sz="4" w:space="0" w:color="888888" />
+          <w:right w:val="single" w:sz="4" w:space="0" w:color="888888" />
+          <w:insideH w:val="single" w:sz="4" w:space="0" w:color="888888" />
+          <w:insideV w:val="single" w:sz="4" w:space="0" w:color="888888" />
+        </w:tblBorders>
+      </w:tblPr>
+      ${rows.map((row) => `<w:tr>${row.map(docxCell).join("")}</w:tr>`).join("")}
+    </w:tbl>
+  `;
+}
+
+function contentToDocxDocumentXml(content: GeneratedContent) {
+  const parts: string[] = [];
+  parts.push(docxParagraph("수학교과 통합 웹앱 생성 자료", { heading: true, size: 36 }));
+
+  parts.push(docxParagraph("과목별 단원별 성취기준", { heading: true }));
+  (content.achievementStandards || []).forEach((item) => {
+    parts.push(docxParagraph(`${item.code} ${item.description} (${item.relation})`));
+  });
+
+  parts.push(docxParagraph("개념 요약", { heading: true }));
+  (content.summary || []).forEach((item) => parts.push(docxBullet(item)));
+
+  parts.push(docxParagraph("확인 퀴즈", { heading: true }));
+  (content.checkQuizzes || []).forEach((item, index) => {
+    parts.push(docxParagraph(`${index + 1}. ${item.question}`, { bold: true }));
+    parts.push(docxParagraph(`난이도: ${item.difficulty} / 유형: ${item.type}`));
+    if (item.choices?.length) parts.push(docxParagraph(`선택지: ${item.choices.join(" / ")}`));
+    parts.push(docxParagraph(`정답: ${item.answer}`));
+    if (item.explanation) parts.push(docxParagraph(`해설: ${item.explanation}`));
+  });
+
+  parts.push(docxParagraph("시험대비문항", { heading: true }));
+  (content.examQuestions || []).forEach((item, index) => {
+    parts.push(docxParagraph(`${index + 1}. ${item.question}`, { bold: true }));
+    if (item.difficulty) parts.push(docxParagraph(`난이도: ${item.difficulty}`));
+    parts.push(docxParagraph(`정답: ${item.answer}`));
+    parts.push(docxParagraph(`풀이 과정: ${item.solution}`));
+  });
+
+  parts.push(docxParagraph("논술형 예시 문항", { heading: true }));
+  (content.essayQuestions || []).forEach((item, index) => {
+    parts.push(docxParagraph(`${index + 1}. ${item.title || item.question}`, { bold: true, size: 26 }));
+    if (item.scenario) parts.push(docxParagraph(`상황: ${item.scenario}`));
+    (item.passages || []).forEach((passage) => parts.push(docxParagraph(`${passage.label} ${passage.text}`)));
+    (item.subQuestions || []).forEach((subQuestion) => {
+      parts.push(docxParagraph(`${subQuestion.number} ${subQuestion.question}`, { bold: true }));
+      parts.push(docxParagraph(`모범 답안: ${subQuestion.answer}`));
+    });
+    if (!item.subQuestions?.length) parts.push(docxParagraph(`모범 답안: ${item.modelAnswer}`));
+  });
+
+  parts.push(docxParagraph("논술형 채점 루브릭", { heading: true }));
+  const rubric = content.rubric && typeof content.rubric === "object" && !Array.isArray(content.rubric)
+    ? content.rubric as {
+      assessmentAreaName?: string;
+      totalScore?: number;
+      essayRubrics?: Array<{
+        essayQuestionIndex?: number;
+        essayQuestionTitle?: string;
+        rows?: Array<{ criterion?: string; maxScore?: number; high?: string; middle?: string; low?: string }>;
+      }>;
+    }
+    : {};
+  parts.push(docxParagraph(`평가 영역명: ${rubric.assessmentAreaName || ""}`));
+  parts.push(docxParagraph(`영역 만점: ${rubric.totalScore || ""}점`));
+  (rubric.essayRubrics || []).forEach((essayRubric) => {
+    parts.push(docxParagraph(`논술형 문항 ${essayRubric.essayQuestionIndex || ""} ${essayRubric.essayQuestionTitle || ""}`, { bold: true }));
+    parts.push(docxTable([
+      ["평가요소", "배점", "상", "중", "하"],
+      ...(essayRubric.rows || []).map((row) => [
+        row.criterion || "",
+        `${row.maxScore || ""}점`,
+        row.high || "",
+        row.middle || "",
+        row.low || ""
+      ])
+    ]));
+  });
+
+  parts.push(docxParagraph("게임 활동", { heading: true }));
+  (content.gameActivities || []).forEach((item, index) => {
+    parts.push(docxParagraph(`${index + 1}. ${item.title}`, { bold: true }));
+    parts.push(docxParagraph(`시간: ${item.duration}`));
+    if (item.target) parts.push(docxParagraph(`목표: ${item.target}`));
+    parts.push(docxParagraph(`준비물: ${item.materials}`));
+    parts.push(docxParagraph("진행 방법", { bold: true }));
+    if (Array.isArray(item.procedure)) item.procedure.forEach((step) => parts.push(docxBullet(step)));
+    else parts.push(docxParagraph(item.procedure));
+    parts.push(docxParagraph("변형 방법", { bold: true }));
+    if (Array.isArray(item.variation)) item.variation.forEach((variation) => parts.push(docxBullet(variation)));
+    else parts.push(docxParagraph(item.variation));
+    if (item.teacherGuide) parts.push(docxParagraph(`교사용 안내: ${item.teacherGuide}`));
+    parts.push(docxParagraph("AI 붙여넣기용 프롬프트", { bold: true }));
+    parts.push(docxParagraph(item.aiPrompt));
+  });
+
+  parts.push(docxParagraph("교사용 활용 팁", { heading: true }));
+  parts.push(docxParagraph(`도입: ${content.teacherTips?.intro || ""}`));
+  parts.push(docxParagraph(`전개: ${content.teacherTips?.development || ""}`));
+  parts.push(docxParagraph(`정리: ${content.teacherTips?.wrapUp || ""}`));
+
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+      <w:body>
+        ${parts.join("")}
+        <w:sectPr>
+          <w:pgSz w:w="11906" w:h="16838" />
+          <w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" />
+        </w:sectPr>
+      </w:body>
+    </w:document>`;
+}
+
+function crc32(bytes: Uint8Array) {
+  let crc = -1;
+  for (const byte of bytes) {
+    crc ^= byte;
+    for (let i = 0; i < 8; i += 1) {
+      crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
+    }
+  }
+  return (crc ^ -1) >>> 0;
+}
+
+function u16(value: number) {
+  return [value & 255, (value >>> 8) & 255];
+}
+
+function u32(value: number) {
+  return [value & 255, (value >>> 8) & 255, (value >>> 16) & 255, (value >>> 24) & 255];
+}
+
+function concatArrays(chunks: Uint8Array[]) {
+  const size = chunks.reduce((total, chunk) => total + chunk.length, 0);
+  const result = new Uint8Array(size);
+  let offset = 0;
+  chunks.forEach((chunk) => {
+    result.set(chunk, offset);
+    offset += chunk.length;
+  });
+  return result;
+}
+
+function createZip(files: Record<string, string>) {
+  const encoder = new TextEncoder();
+  const localParts: Uint8Array[] = [];
+  const centralParts: Uint8Array[] = [];
+  let offset = 0;
+
+  Object.entries(files).forEach(([name, text]) => {
+    const nameBytes = encoder.encode(name);
+    const data = encoder.encode(text);
+    const crc = crc32(data);
+    const localHeader = new Uint8Array([
+      ...u32(0x04034b50), ...u16(20), ...u16(0), ...u16(0), ...u16(0), ...u16(0),
+      ...u32(crc), ...u32(data.length), ...u32(data.length), ...u16(nameBytes.length), ...u16(0)
+    ]);
+    localParts.push(localHeader, nameBytes, data);
+
+    const centralHeader = new Uint8Array([
+      ...u32(0x02014b50), ...u16(20), ...u16(20), ...u16(0), ...u16(0), ...u16(0), ...u16(0),
+      ...u32(crc), ...u32(data.length), ...u32(data.length), ...u16(nameBytes.length), ...u16(0), ...u16(0),
+      ...u16(0), ...u16(0), ...u32(0), ...u32(offset)
+    ]);
+    centralParts.push(centralHeader, nameBytes);
+    offset += localHeader.length + nameBytes.length + data.length;
+  });
+
+  const central = concatArrays(centralParts);
+  const end = new Uint8Array([
+    ...u32(0x06054b50), ...u16(0), ...u16(0), ...u16(Object.keys(files).length), ...u16(Object.keys(files).length),
+    ...u32(central.length), ...u32(offset), ...u16(0)
+  ]);
+
+  return concatArrays([...localParts, central, end]);
+}
+
+function createDocxBlob(content: GeneratedContent) {
+  const documentXml = contentToDocxDocumentXml(content);
+  const files = {
+    "[Content_Types].xml": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+      <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+        <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+        <Default Extension="xml" ContentType="application/xml"/>
+        <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+      </Types>`,
+    "_rels/.rels": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+      <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+        <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+      </Relationships>`,
+    "word/document.xml": documentXml
+  };
+  return new Blob([createZip(files)], {
+    type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+  });
 }
 
 async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -697,10 +945,8 @@ export function TeacherDashboard() {
     }
 
     const selectedSubunit = data?.subunits.find((item) => item.id === result.subunitId);
-    const fileName = `${selectedSubunit?.title || "수학_수업자료"}.doc`;
-    const blob = new Blob(["\ufeff", contentToWordHtml(result.content)], {
-      type: "application/msword;charset=utf-8"
-    });
+    const fileName = `${selectedSubunit?.title || "수학_수업자료"}.docx`;
+    const blob = createDocxBlob(result.content);
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
@@ -709,7 +955,7 @@ export function TeacherDashboard() {
     anchor.click();
     anchor.remove();
     URL.revokeObjectURL(url);
-    setNotice({ tone: "normal", message: "Word 파일로 내보냈습니다." });
+    setNotice({ tone: "normal", message: "DOCX 파일로 내보냈습니다." });
   }
 
   return (
