@@ -118,6 +118,7 @@ export async function generateMathContent(input: {
   }
 
   const model = process.env.OPENAI_MODEL || "gpt-4.1-mini";
+  const enableWebSearch = process.env.OPENAI_ENABLE_WEB_SEARCH === "true";
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: {
@@ -126,12 +127,12 @@ export async function generateMathContent(input: {
     },
     body: JSON.stringify({
       model,
-      tools: process.env.OPENAI_ENABLE_WEB_SEARCH === "true"
+      tools: enableWebSearch
         ? [{ type: "web_search" }]
         : undefined,
-      tool_choice: process.env.OPENAI_ENABLE_WEB_SEARCH === "true" ? "auto" : undefined,
+      tool_choice: enableWebSearch ? "auto" : undefined,
       input: buildMathTeacherPrompt(input),
-      text: { format: { type: "json_object" } }
+      text: enableWebSearch ? undefined : { format: { type: "json_object" } }
     })
   });
 
@@ -146,9 +147,19 @@ export async function generateMathContent(input: {
 
   if (!text) throw new Error("AI response text was empty.");
 
+  const parsed = (() => {
+    try {
+      return JSON.parse(text);
+    } catch {
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (jsonMatch) return JSON.parse(jsonMatch[0]);
+      throw new Error("AI 응답을 JSON으로 해석하지 못했습니다.");
+    }
+  })();
+
   return {
     source: "ai",
     model,
-    content: normalizeGeneratedContent(JSON.parse(text))
+    content: normalizeGeneratedContent(parsed)
   };
 }
