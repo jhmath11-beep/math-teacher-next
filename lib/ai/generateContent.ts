@@ -1,4 +1,4 @@
-import { buildMathTeacherPrompt } from "@/lib/ai/prompt";
+import { buildFocusedSectionPrompt, buildMathTeacherPrompt } from "@/lib/ai/prompt";
 import type { GeneratedContent } from "@/types/content";
 
 function asArray(value: unknown) {
@@ -161,5 +161,64 @@ export async function generateMathContent(input: {
     source: "ai",
     model,
     content: normalizeGeneratedContent(parsed)
+  };
+}
+
+async function callOpenAI(prompt: string) {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    throw new Error("OPENAI_API_KEY is missing.");
+  }
+
+  const model = process.env.OPENAI_MODEL || "gpt-4.1-mini";
+  const enableWebSearch = process.env.OPENAI_ENABLE_WEB_SEARCH === "true";
+  const response = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${apiKey}`
+    },
+    body: JSON.stringify({
+      model,
+      tools: enableWebSearch ? [{ type: "web_search" }] : undefined,
+      tool_choice: enableWebSearch ? "auto" : undefined,
+      input: prompt,
+      text: enableWebSearch ? undefined : { format: { type: "json_object" } }
+    })
+  });
+
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(`AI API error: ${response.status} ${detail}`);
+  }
+
+  const data = await response.json();
+  const text = data.output_text || data.output?.flatMap((item: { content?: Array<{ type: string; text?: string }> }) => item.content || [])
+    .find((item: { type: string }) => item.type === "output_text")?.text;
+
+  if (!text) throw new Error("AI response text was empty.");
+
+  try {
+    return { parsed: JSON.parse(text), model };
+  } catch {
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (jsonMatch) return { parsed: JSON.parse(jsonMatch[0]), model };
+    throw new Error("AI 응답을 JSON으로 해석하지 못했습니다.");
+  }
+}
+
+export async function generateFocusedSection(input: {
+  subunitTitle: string;
+  extractedText: string;
+  achievementStandard?: string;
+  section: "exam" | "essay" | "game";
+  currentContent?: unknown;
+}) {
+  const { parsed, model } = await callOpenAI(buildFocusedSectionPrompt(input));
+  const normalized = normalizeGeneratedContent(parsed);
+  return {
+    source: "ai",
+    model,
+    content: normalized
   };
 }

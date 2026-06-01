@@ -167,3 +167,130 @@ export function buildMathTeacherPrompt(input: {
     }, null, 2)
   ].join("\n");
 }
+
+export function buildFocusedSectionPrompt(input: {
+  subunitTitle: string;
+  extractedText: string;
+  achievementStandard?: string;
+  section: "exam" | "essay" | "game";
+  currentContent?: unknown;
+}) {
+  const base = [
+    "다음은 중학교 수학 교과서의 특정 소단원 내용입니다.",
+    "",
+    "[소단원명]",
+    input.subunitTitle,
+    "",
+    "[교과서 텍스트]",
+    input.extractedText.slice(0, 22000),
+    "",
+    "[소단원에 연결된 성취기준]",
+    input.achievementStandard || "관리자가 별도로 연결한 성취기준이 없습니다.",
+    "",
+    "[현재 저장된 생성 결과]",
+    JSON.stringify(input.currentContent || {}, null, 2).slice(0, 12000),
+    "",
+    "역할:",
+    "너는 중학교 수학 교사, 평가 문항 개발자, 수업 설계 전문가입니다.",
+    "",
+    "공통 지침:",
+    "- 교과서 내용과 성취기준 범위 안에서 생성하세요.",
+    "- 웹 검색을 사용할 수 있으면 문항 유형과 활동 아이디어의 구조만 참고하고, 문항은 새로 작성하세요.",
+    "- 수식은 x², x³, a₁, x₂, ×, ÷, ≤, ≥처럼 학생용 문서에 적합한 표기를 사용하세요.",
+    "- aiPrompt가 필요한 경우 반드시 한국어로 작성하세요.",
+    "- 최종 응답에는 설명, 마크다운 코드블록, 주석을 넣지 말고 JSON 객체 하나만 출력하세요."
+  ];
+
+  if (input.section === "exam") {
+    return [
+      ...base,
+      "",
+      "시험대비문항만 고품질로 다시 생성하세요.",
+      "- examQuestions 배열만 반환하세요.",
+      "- 총 7문항을 생성하세요.",
+      "- 난이도: 보통 2문항, 어려움 3문항, 최상 2문항.",
+      "- 유형: 조건 변형형, 오류 수정형, 여러 표현 연결형, 실생활 맥락형, 단계적 추론형, 보기 해석형을 섞으세요.",
+      "- 단순 계산 문항은 최대 1문항만 허용합니다.",
+      "- 각 문항은 실제 학교 시험에서 변별력이 있도록 2단계 이상의 사고 과정을 요구하세요.",
+      "- 정답과 풀이 과정은 학생이 따라 쓸 수 있도록 상세히 작성하세요.",
+      "",
+      "JSON 구조:",
+      JSON.stringify({
+        examQuestions: [
+          { difficulty: "어려움", question: "문항", answer: "정답", solution: "단계별 풀이 과정" }
+        ]
+      }, null, 2)
+    ].join("\n");
+  }
+
+  if (input.section === "essay") {
+    return [
+      ...base,
+      "",
+      "논술형 예시 문항과 그 문항별 루브릭만 고품질로 다시 생성하세요.",
+      "- essayQuestions 배열과 rubric 객체만 반환하세요.",
+      "- 논술형 문항은 3문항 생성하세요.",
+      "- 각 문항은 설명, 정당화, 비교, 오류 분석, 일반화 중 적어도 하나를 요구해야 합니다.",
+      "- 계산 결과만 쓰면 만점을 받을 수 없도록 발문을 설계하세요.",
+      "- 모범 답안은 채점 기준으로 바로 사용할 수 있게 문장형으로 자세히 작성하세요.",
+      "- rubric.essayRubrics는 문항별로 제공하고, 각 문항마다 평가요소 4개 이상을 포함하세요.",
+      "- 평가요소에는 개념 이해, 풀이 과정, 표현의 정확성, 수학적 추론을 반드시 포함하세요.",
+      "- high/middle/low 기준에는 부분점수와 감점 요인을 구체적으로 쓰세요.",
+      "",
+      "JSON 구조:",
+      JSON.stringify({
+        essayQuestions: [
+          { question: "논술형 문항", modelAnswer: "자세한 모범 답안" }
+        ],
+        rubric: {
+          assessmentAreaName: "논술형 평가",
+          totalScore: 20,
+          achievementStandards: ["성취기준"],
+          achievementLevels: { high: "상 기준", middle: "중 기준", low: "하 기준" },
+          assessmentMethods: ["서술형", "논술형"],
+          essayRubrics: [
+            {
+              essayQuestionIndex: 1,
+              essayQuestionTitle: "문항 요약",
+              rows: [
+                { criterion: "개념 이해", maxScore: 6, high: "상 기준", middle: "중 기준", low: "하 기준" },
+                { criterion: "풀이 과정", maxScore: 6, high: "상 기준", middle: "중 기준", low: "하 기준" },
+                { criterion: "수학적 추론", maxScore: 5, high: "상 기준", middle: "중 기준", low: "하 기준" },
+                { criterion: "표현의 정확성", maxScore: 3, high: "상 기준", middle: "중 기준", low: "하 기준" }
+              ]
+            }
+          ],
+          baseScore: { submittedBlank: 1, notSubmitted: 0, excusedAbsent: 0 }
+        }
+      }, null, 2)
+    ].join("\n");
+  }
+
+  return [
+    ...base,
+    "",
+    "게임 활동과 바이브코딩용 AI 프롬프트만 고품질로 다시 생성하세요.",
+    "- gameActivities 배열만 반환하세요.",
+    "- 활동은 2개 생성하세요. 하나는 오프라인 모둠 활동, 하나는 웹게임/디지털 활동이어야 합니다.",
+    "- 각 활동은 30~45분 수업에서 바로 쓸 수 있어야 합니다.",
+    "- procedure는 6단계 이상, variation은 4개 이상 작성하세요.",
+    "- aiPrompt는 반드시 한국어로, 각 활동당 최소 1000자 이상 작성하세요.",
+    "- aiPrompt에는 화면 구성, 게임 규칙, 학생 조작, 점수 체계, 피드백, 난이도 조절, 교사용 설정, 예시 문항 데이터, 결과 화면을 포함하세요.",
+    "",
+    "JSON 구조:",
+    JSON.stringify({
+      gameActivities: [
+        {
+          title: "활동명",
+          duration: "30~45분",
+          target: "활동 목표",
+          materials: "준비물",
+          procedure: ["진행 단계 1", "진행 단계 2", "진행 단계 3", "진행 단계 4", "진행 단계 5", "진행 단계 6"],
+          variation: ["변형 1", "변형 2", "변형 3", "변형 4"],
+          teacherGuide: "교사용 진행 안내",
+          aiPrompt: "한국어 바이브코딩용 상세 프롬프트"
+        }
+      ]
+    }, null, 2)
+  ].join("\n");
+}
