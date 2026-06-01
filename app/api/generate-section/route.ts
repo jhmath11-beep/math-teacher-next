@@ -64,8 +64,7 @@ export async function POST(request: Request) {
       subunitTitle: subunit.title,
       achievementStandard: subunit.achievement_standard || "",
       extractedText: textRow.extracted_text,
-      section: body.section,
-      currentContent
+      section: body.section
     });
 
     const mergedContent = mergeSection(currentContent, result.content, body.section);
