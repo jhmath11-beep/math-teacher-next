@@ -104,8 +104,14 @@ function contentToText(content: GeneratedContent) {
 
   lines.push("", "[논술형 예시 문항]");
   (content.essayQuestions || []).forEach((item, index) => {
-    lines.push(`${index + 1}. ${formatMathText(item.question)}`);
-    lines.push(`모범 답안: ${formatMathText(item.modelAnswer)}`);
+    lines.push(`${index + 1}. ${formatMathText(item.title || item.question)}`);
+    if (item.scenario) lines.push(`상황: ${formatMathText(item.scenario)}`);
+    (item.passages || []).forEach((passage) => lines.push(`${passage.label} ${formatMathText(passage.text)}`));
+    (item.subQuestions || []).forEach((subQuestion) => {
+      lines.push(`${subQuestion.number} ${formatMathText(subQuestion.question)}`);
+      lines.push(`모범 답안: ${formatMathText(subQuestion.answer)}`);
+    });
+    if (!item.subQuestions?.length) lines.push(`모범 답안: ${formatMathText(item.modelAnswer)}`);
   });
 
   lines.push("", "[게임 활동]");
@@ -294,8 +300,29 @@ function GeneratedContentView({ content }: { content: GeneratedContent }) {
         <h3>논술형 예시 문항</h3>
         {(content.essayQuestions || []).map((item, index) => (
           <div className="question-card" key={`${item.question}-${index}`}>
-            <strong>{index + 1}. <Text>{item.question}</Text></strong>
-            <p>모범 답안: <Text>{item.modelAnswer}</Text></p>
+            <strong>{index + 1}. <Text>{item.title || item.question}</Text></strong>
+            {item.scenario ? <p><strong>상황</strong>: <Text>{item.scenario}</Text></p> : null}
+            {item.passages?.length ? (
+              <div className="passage-list">
+                {item.passages.map((passage) => (
+                  <p key={`${passage.label}-${passage.text}`}>
+                    <strong>{passage.label}</strong> <Text>{passage.text}</Text>
+                  </p>
+                ))}
+              </div>
+            ) : null}
+            {item.subQuestions?.length ? (
+              <div className="stack-sm">
+                {item.subQuestions.map((subQuestion) => (
+                  <div className="sub-question" key={`${subQuestion.number}-${subQuestion.question}`}>
+                    <p><strong>{subQuestion.number}</strong> <Text>{subQuestion.question}</Text></p>
+                    <p><strong>모범 답안</strong>: <Text>{subQuestion.answer}</Text></p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p>모범 답안: <Text>{item.modelAnswer}</Text></p>
+            )}
           </div>
         ))}
       </section>
