@@ -204,6 +204,21 @@ textarea {
   line-height: 1.55;
 }
 
+.passage-list {
+  border: 1px solid #dce4ea;
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 12px;
+  display: grid;
+  gap: 8px;
+}
+
+.sub-question {
+  border-left: 4px solid #d85b45;
+  padding: 8px 0 8px 12px;
+  background: #fffaf8;
+}
+
 .badge {
   display: inline-flex;
   align-items: center;
