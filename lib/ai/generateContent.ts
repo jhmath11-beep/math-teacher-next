@@ -147,43 +147,7 @@ export async function generateMathContent(input: {
   extractedText: string;
   achievementStandard?: string;
 }) {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    throw new Error("OPENAI_API_KEY is missing.");
-  }
-
-  const model = process.env.OPENAI_MODEL || "gpt-4.1-mini";
-  const enableWebSearch = process.env.OPENAI_ENABLE_WEB_SEARCH === "true";
-  const response = await fetch("https://api.openai.com/v1/responses", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${apiKey}`
-    },
-    body: JSON.stringify({
-      model,
-      tools: enableWebSearch
-        ? [{ type: "web_search" }]
-        : undefined,
-      tool_choice: enableWebSearch ? "auto" : undefined,
-      input: buildMathTeacherPrompt(input),
-      text: enableWebSearch ? undefined : { format: { type: "json_object" } }
-    })
-  });
-
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(`AI API error: ${response.status} ${detail}`);
-  }
-
-  const data = await response.json();
-  const text = data.output_text || data.output?.flatMap((item: { content?: Array<{ type: string; text?: string }> }) => item.content || [])
-    .find((item: { type: string }) => item.type === "output_text")?.text;
-
-  if (!text) throw new Error("AI response text was empty.");
-
-  const parsed = parseJsonLikeText(text);
-
+  const { parsed, model } = await callOpenAI(buildMathTeacherPrompt(input));
   return {
     source: "ai",
     model,
@@ -191,14 +155,17 @@ export async function generateMathContent(input: {
   };
 }
 
-async function callOpenAI(prompt: string) {
+async function requestOpenAIText(input: {
+  prompt: string;
+  useWebSearch: boolean;
+  jsonMode: boolean;
+}) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
     throw new Error("OPENAI_API_KEY is missing.");
   }
 
   const model = process.env.OPENAI_MODEL || "gpt-4.1-mini";
-  const enableWebSearch = process.env.OPENAI_ENABLE_WEB_SEARCH === "true";
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: {
@@ -207,10 +174,12 @@ async function callOpenAI(prompt: string) {
     },
     body: JSON.stringify({
       model,
-      tools: enableWebSearch ? [{ type: "web_search" }] : undefined,
-      tool_choice: enableWebSearch ? "auto" : undefined,
-      input: prompt,
-      text: enableWebSearch ? undefined : { format: { type: "json_object" } }
+      tools: input.useWebSearch
+        ? [{ type: "web_search" }]
+        : undefined,
+      tool_choice: input.useWebSearch ? "auto" : undefined,
+      input: input.prompt,
+      text: input.jsonMode ? { format: { type: "json_object" } } : undefined
     })
   });
 
@@ -225,7 +194,47 @@ async function callOpenAI(prompt: string) {
 
   if (!text) throw new Error("AI response text was empty.");
 
-  return { parsed: parseJsonLikeText(text), model };
+  return { text, model };
+}
+
+async function callOpenAI(prompt: string) {
+  const enableWebSearch = process.env.OPENAI_ENABLE_WEB_SEARCH === "true";
+
+  if (enableWebSearch) {
+    const search = await requestOpenAIText({
+      useWebSearch: true,
+      jsonMode: false,
+      prompt: [
+        prompt,
+        "",
+        "위 요청을 해결하기 위해 웹 검색으로 참고할 만한 중학교 수학 문항 유형, 활동 아이디어, 평가 발문 패턴을 요약하세요.",
+        "최종 문항을 만들지 말고 참고 아이디어만 한국어로 정리하세요.",
+        "저작권이 있는 문항을 그대로 옮기지 말고 구조와 아이디어만 요약하세요."
+      ].join("\n")
+    });
+
+    const final = await requestOpenAIText({
+      useWebSearch: false,
+      jsonMode: true,
+      prompt: [
+        prompt,
+        "",
+        "[웹 검색 참고 요약]",
+        search.text.slice(0, 8000),
+        "",
+        "위 검색 요약은 참고만 하세요. 최종 결과는 제공된 교과서 텍스트와 성취기준 범위 안에서 새로 작성하세요.",
+        "반드시 올바른 JSON 객체 하나만 출력하세요."
+      ].join("\n")
+    });
+    return { parsed: parseJsonLikeText(final.text), model: final.model };
+  }
+
+  const final = await requestOpenAIText({
+    useWebSearch: false,
+    jsonMode: true,
+    prompt
+  });
+  return { parsed: parseJsonLikeText(final.text), model: final.model };
 }
 
 export async function generateFocusedSection(input: {
