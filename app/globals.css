@@ -371,3 +371,14 @@ textarea {
     display: grid;
   }
 }
+
+/* 논술형 마크다운 렌더링 */
+.markdown-body { line-height: 1.7; color: #1f2937; }
+.markdown-body .md-h2 { font-size: 1.2rem; font-weight: 800; margin: 18px 0 8px; color: #1e293b; }
+.markdown-body .md-h3 { font-size: 1.08rem; font-weight: 800; margin: 16px 0 6px; color: #4338ca; }
+.markdown-body .md-h4 { font-size: 1rem; font-weight: 800; margin: 14px 0 6px; padding: 6px 10px; background: #eef2ff; border-left: 4px solid #6366f1; border-radius: 4px; color: #3730a3; }
+.markdown-body p { margin: 6px 0; }
+.markdown-body ul { margin: 6px 0 6px 18px; }
+.markdown-body hr { border: none; border-top: 1px solid #e5e7eb; margin: 14px 0; }
+.markdown-body .table-wrap { overflow-x: auto; margin: 10px 0; }
+.markdown-body strong { font-weight: 800; color: #111827; }

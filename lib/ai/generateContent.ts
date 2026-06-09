@@ -1,5 +1,8 @@
-import { buildFocusedSectionPrompt, buildMathTeacherPrompt } from "@/lib/ai/prompt";
+import { buildFocusedSectionPrompt, buildLeveledQuestionPrompt, buildMathTeacherPrompt, buildReferenceAnalysisPrompt, EVALUATION_EXPERT_GUIDE } from "@/lib/ai/prompt";
+import { extractStandardCode, formatLevelSpectrum, formatTargetLevel, getAchievementLevels } from "@/lib/data/achievementLevels";
 import type { GeneratedContent } from "@/types/content";
+
+export type TargetLevel = "A" | "B" | "C" | "D" | "E";
 
 function asArray(value: unknown) {
   if (Array.isArray(value)) return value;
@@ -40,6 +43,19 @@ function parseJsonLikeText(text: string) {
   }
 }
 
+// 모델이 줄바꿈을 \\n(리터럴 백슬래시-n)으로 잘못 이스케이프하는 경우를 복구한다.
+// $...$ 수학 구간은 LaTeX 명령어(\\nu 등)를 깨지 않도록 그대로 보존한다.
+function fixEssayMarkdown(md: string): string {
+  if (!md) return "";
+  return md
+    .split(/(\$[^$]*\$)/)
+    .map((segment, index) => {
+      if (index % 2 === 1) return segment; // $...$ 수학 구간은 손대지 않음
+      return segment.replace(/\\n/g, "\n").replace(/\\t/g, "  ");
+    })
+    .join("");
+}
+
 export function normalizeGeneratedContent(raw: unknown): GeneratedContent {
   const data = asRecord(raw);
   const tips = asRecord(pickValue(data, ["teacherTips", "교사용 활용 팁", "교사용활용팁", "활용 팁"]));
@@ -73,6 +89,7 @@ export function normalizeGeneratedContent(raw: unknown): GeneratedContent {
       return {
         difficulty: String(row.difficulty || row["난이도"] || ""),
         question: String(row.question || row["문항"] || row["문제"] || ""),
+        choices: asArray(row.choices || row["선택지"] || row["보기"]).map(String),
         answer: String(row.answer || row["정답"] || ""),
         solution: String(row.solution || row["풀이 과정"] || row["풀이"] || "")
       };
@@ -102,6 +119,7 @@ export function normalizeGeneratedContent(raw: unknown): GeneratedContent {
       };
     }),
     rubric: pickValue(data, ["rubric", "논술형 채점 루브릭", "채점 루브릭", "루브릭"]) || {},
+    essayMarkdown: fixEssayMarkdown(String(pickValue(data, ["essayMarkdown", "논술형마크다운", "논술형 마크다운"]) || "")),
     gameActivities: asArray(pickValue(data, ["gameActivities", "게임 활동", "게임활동", "게임 활동 제작용 프롬프트 제작"])).map((item) => {
       const row = item && typeof item === "object" ? item as Record<string, unknown> : { title: String(item) };
       return {
@@ -134,6 +152,7 @@ export function hasGeneratedContent(content: GeneratedContent) {
     content.checkQuizzes?.length ||
     content.examQuestions?.length ||
     content.essayQuestions?.length ||
+    content.essayMarkdown ||
     content.gameActivities?.length ||
     content.teacherTips?.intro ||
     content.teacherTips?.development ||
@@ -147,7 +166,8 @@ export async function generateMathContent(input: {
   extractedText: string;
   achievementStandard?: string;
 }) {
-  const { parsed, model } = await callOpenAI(buildMathTeacherPrompt(input));
+  const achievementLevelSpectrum = formatLevelSpectrum(extractStandardCode(input.achievementStandard));
+  const { parsed, model } = await callOpenAI(buildMathTeacherPrompt({ ...input, achievementLevelSpectrum }));
   return {
     source: "ai",
     model,
@@ -159,6 +179,8 @@ async function requestOpenAIText(input: {
   prompt: string;
   useWebSearch: boolean;
   jsonMode: boolean;
+  imageDataUrl?: string;
+  instructions?: string;
 }) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
@@ -166,6 +188,20 @@ async function requestOpenAIText(input: {
   }
 
   const model = process.env.OPENAI_MODEL || "gpt-4.1-mini";
+
+  // 이미지가 있으면 멀티모달(input_text + input_image) 메시지 배열로, 없으면 단순 문자열로 보낸다.
+  const requestInput = input.imageDataUrl
+    ? [
+        {
+          role: "user",
+          content: [
+            { type: "input_text", text: input.prompt },
+            { type: "input_image", image_url: input.imageDataUrl }
+          ]
+        }
+      ]
+    : input.prompt;
+
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: {
@@ -174,11 +210,12 @@ async function requestOpenAIText(input: {
     },
     body: JSON.stringify({
       model,
+      instructions: input.instructions,
       tools: input.useWebSearch
         ? [{ type: "web_search" }]
         : undefined,
       tool_choice: input.useWebSearch ? "auto" : undefined,
-      input: input.prompt,
+      input: requestInput,
       text: input.jsonMode ? { format: { type: "json_object" } } : undefined
     })
   });
@@ -197,13 +234,14 @@ async function requestOpenAIText(input: {
   return { text, model };
 }
 
-async function callOpenAI(prompt: string) {
+async function callOpenAI(prompt: string, instructions: string = EVALUATION_EXPERT_GUIDE) {
   const enableWebSearch = process.env.OPENAI_ENABLE_WEB_SEARCH === "true";
 
   if (enableWebSearch) {
     const search = await requestOpenAIText({
       useWebSearch: true,
       jsonMode: false,
+      instructions,
       prompt: [
         prompt,
         "",
@@ -216,6 +254,7 @@ async function callOpenAI(prompt: string) {
     const final = await requestOpenAIText({
       useWebSearch: false,
       jsonMode: true,
+      instructions,
       prompt: [
         prompt,
         "",
@@ -232,6 +271,7 @@ async function callOpenAI(prompt: string) {
   const final = await requestOpenAIText({
     useWebSearch: false,
     jsonMode: true,
+    instructions,
     prompt
   });
   return { parsed: parseJsonLikeText(final.text), model: final.model };
@@ -243,11 +283,69 @@ export async function generateFocusedSection(input: {
   achievementStandard?: string;
   section: "exam" | "essay" | "game";
 }) {
-  const { parsed, model } = await callOpenAI(buildFocusedSectionPrompt(input));
+  const achievementLevelSpectrum = formatLevelSpectrum(extractStandardCode(input.achievementStandard));
+  const { parsed, model } = await callOpenAI(buildFocusedSectionPrompt({ ...input, achievementLevelSpectrum }));
   const normalized = normalizeGeneratedContent(parsed);
   return {
     source: "ai",
     model,
     content: normalized
+  };
+}
+
+export async function generateLeveledQuestions(input: {
+  subunitTitle: string;
+  extractedText?: string;
+  achievementStandard?: string;
+  targetLevel: TargetLevel;
+  requestNote?: string;
+}) {
+  const code = extractStandardCode(input.achievementStandard);
+  const levels = getAchievementLevels(code);
+  const targetLevelText = formatTargetLevel(code, input.targetLevel)
+    || `[목표 성취수준: ${input.targetLevel}] 소단원명과 성취기준에 근거하여 해당 수준에 맞게 출제하세요.`;
+
+  const { parsed, model } = await callOpenAI(
+    buildLeveledQuestionPrompt({
+      subunitTitle: input.subunitTitle,
+      extractedText: input.extractedText,
+      achievementStandard: input.achievementStandard,
+      achievementLevelSpectrum: formatLevelSpectrum(code),
+      targetLevel: input.targetLevel,
+      targetLevelText,
+      requestNote: input.requestNote
+    })
+  );
+
+  return {
+    source: "ai-leveled",
+    model,
+    targetLevel: input.targetLevel,
+    hasLevelData: Boolean(levels),
+    content: normalizeGeneratedContent(parsed)
+  };
+}
+
+export async function generateFromReference(input: {
+  referenceText?: string;
+  imageDataUrl?: string;
+  requestNote?: string;
+}) {
+  const { text, model } = await requestOpenAIText({
+    useWebSearch: false,
+    jsonMode: true,
+    instructions: EVALUATION_EXPERT_GUIDE,
+    prompt: buildReferenceAnalysisPrompt({
+      referenceText: input.referenceText,
+      hasImage: Boolean(input.imageDataUrl),
+      requestNote: input.requestNote
+    }),
+    imageDataUrl: input.imageDataUrl
+  });
+
+  return {
+    source: "ai-reference",
+    model,
+    content: normalizeGeneratedContent(parseJsonLikeText(text))
   };
 }

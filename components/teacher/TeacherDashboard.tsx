@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { BootstrapData } from "@/types/database";
 import type { GeneratedContent } from "@/types/content";
 
@@ -48,11 +48,75 @@ function toScript(value: string, map: Record<string, string>) {
   return value.split("").map((char) => map[char] || char).join("");
 }
 
+// 논술형 마크다운(제목/제시문/표 등)을 HTML로 변환한다. 수식($...$)은 MathJax가 조판한다.
+// 입력은 우리 AI 응답이지만 안전을 위해 텍스트는 escape한 뒤 마크다운 패턴만 허용한다.
+function renderMarkdownToHtml(md: string): string {
+  const escape = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const inline = (s: string) => escape(s).replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  const splitRow = (line: string) => {
+    const cells = line.split("|");
+    if (cells[0].trim() === "") cells.shift();
+    if (cells.length && cells[cells.length - 1].trim() === "") cells.pop();
+    return cells.map((c) => c.trim());
+  };
+  const lines = String(md).replace(/\r/g, "").split("\n");
+  const out: string[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (/^\s*\|/.test(line) && i + 1 < lines.length && /-/.test(lines[i + 1]) && /^[\s|:-]+$/.test(lines[i + 1])) {
+      const headers = splitRow(line);
+      i += 2;
+      const rows: string[][] = [];
+      while (i < lines.length && /^\s*\|/.test(lines[i])) {
+        rows.push(splitRow(lines[i]));
+        i += 1;
+      }
+      out.push(
+        `<div class="table-wrap"><table class="data-table rubric-table"><thead><tr>${headers
+          .map((h) => `<th>${inline(h)}</th>`)
+          .join("")}</tr></thead><tbody>${rows
+          .map((r) => `<tr>${r.map((c) => `<td>${inline(c)}</td>`).join("")}</tr>`)
+          .join("")}</tbody></table></div>`
+      );
+      continue;
+    }
+    if (/^###\s+/.test(line)) { out.push(`<h4 class="md-h4">${inline(line.replace(/^###\s+/, ""))}</h4>`); i += 1; continue; }
+    if (/^##\s+/.test(line)) { out.push(`<h3 class="md-h3">${inline(line.replace(/^##\s+/, ""))}</h3>`); i += 1; continue; }
+    if (/^#\s+/.test(line)) { out.push(`<h2 class="md-h2">${inline(line.replace(/^#\s+/, ""))}</h2>`); i += 1; continue; }
+    if (/^\s*---+\s*$/.test(line)) { out.push("<hr/>"); i += 1; continue; }
+    if (/^\s*[-*]\s+/.test(line)) {
+      const items: string[] = [];
+      while (i < lines.length && /^\s*[-*]\s+/.test(lines[i])) {
+        items.push(`<li>${inline(lines[i].replace(/^\s*[-*]\s+/, ""))}</li>`);
+        i += 1;
+      }
+      out.push(`<ul>${items.join("")}</ul>`);
+      continue;
+    }
+    if (line.trim() === "") { i += 1; continue; }
+    out.push(`<p>${inline(line)}</p>`);
+    i += 1;
+  }
+  return out.join("");
+}
+
+const CIRCLED_NUMBERS = ["①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧", "⑨", "⑩"];
+
+// 보기 텍스트에 이미 ①~⑩ 번호가 있으면 그대로, 없으면 순번을 붙인다.
+function choiceLabel(choice: unknown, index: number) {
+  const text = formatMathText(choice);
+  return /^\s*[①-⑩]/.test(text) ? text : `${CIRCLED_NUMBERS[index] || `${index + 1}.`} ${text}`;
+}
+
 function formatMathText(value: unknown) {
-  return String(value ?? "")
+  // 수식은 LaTeX 인라인($...$)으로 들어오므로 원문을 보존하고 MathJax가 조판한다.
+  // $ 밖의 일반 텍스트에 섞인 옛 표기(^2 등)만 가볍게 보정하되, $...$ 안은 손대지 않는다.
+  const raw = String(value ?? "");
+  if (raw.includes("$")) return raw; // LaTeX 포함 → 원문 그대로(MathJax가 처리)
+  return raw
     .replace(/\^([+-]?\d+)/g, (_, exponent: string) => toScript(exponent, superscripts))
     .replace(/_([+-]?\d+)/g, (_, subscript: string) => toScript(subscript, subscripts))
-    .replace(/\*/g, "×")
     .replace(/<=/g, "≤")
     .replace(/>=/g, "≥");
 }
@@ -160,49 +224,59 @@ function contentToDocxDocumentXml(content: GeneratedContent) {
   (content.examQuestions || []).forEach((item, index) => {
     parts.push(docxParagraph(`${index + 1}. ${item.question}`, { bold: true }));
     if (item.difficulty) parts.push(docxParagraph(`난이도: ${item.difficulty}`));
+    if (item.choices?.length) item.choices.forEach((choice, ci) => parts.push(docxParagraph(choiceLabel(choice, ci))));
     parts.push(docxParagraph(`정답: ${item.answer}`));
     parts.push(docxParagraph(`풀이 과정: ${item.solution}`));
   });
 
-  parts.push(docxParagraph("논술형 예시 문항", { heading: true }));
-  (content.essayQuestions || []).forEach((item, index) => {
-    parts.push(docxParagraph(`${index + 1}. ${item.title || item.question}`, { bold: true, size: 26 }));
-    if (item.scenario) parts.push(docxParagraph(`상황: ${item.scenario}`));
-    (item.passages || []).forEach((passage) => parts.push(docxParagraph(`${passage.label} ${passage.text}`)));
-    (item.subQuestions || []).forEach((subQuestion) => {
-      parts.push(docxParagraph(`${subQuestion.number} ${subQuestion.question}`, { bold: true }));
-      parts.push(docxParagraph(`모범 답안: ${subQuestion.answer}`));
+  parts.push(docxParagraph("논술형 평가 문항", { heading: true }));
+  if (content.essayMarkdown) {
+    content.essayMarkdown.split("\n").forEach((line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return;
+      if (/^#{1,3}\s+/.test(trimmed)) parts.push(docxParagraph(trimmed.replace(/^#{1,3}\s+/, ""), { bold: true, size: 26 }));
+      else parts.push(docxParagraph(trimmed.replace(/\*\*/g, "")));
     });
-    if (!item.subQuestions?.length) parts.push(docxParagraph(`모범 답안: ${item.modelAnswer}`));
-  });
+  } else {
+    (content.essayQuestions || []).forEach((item, index) => {
+      parts.push(docxParagraph(`${index + 1}. ${item.title || item.question}`, { bold: true, size: 26 }));
+      if (item.scenario) parts.push(docxParagraph(`상황: ${item.scenario}`));
+      (item.passages || []).forEach((passage) => parts.push(docxParagraph(`${passage.label} ${passage.text}`)));
+      (item.subQuestions || []).forEach((subQuestion) => {
+        parts.push(docxParagraph(`${subQuestion.number} ${subQuestion.question}`, { bold: true }));
+        parts.push(docxParagraph(`모범 답안: ${subQuestion.answer}`));
+      });
+      if (!item.subQuestions?.length) parts.push(docxParagraph(`모범 답안: ${item.modelAnswer}`));
+    });
 
-  parts.push(docxParagraph("논술형 채점 루브릭", { heading: true }));
-  const rubric = content.rubric && typeof content.rubric === "object" && !Array.isArray(content.rubric)
-    ? content.rubric as {
-      assessmentAreaName?: string;
-      totalScore?: number;
-      essayRubrics?: Array<{
-        essayQuestionIndex?: number;
-        essayQuestionTitle?: string;
-        rows?: Array<{ criterion?: string; maxScore?: number; high?: string; middle?: string; low?: string }>;
-      }>;
-    }
-    : {};
-  parts.push(docxParagraph(`평가 영역명: ${rubric.assessmentAreaName || ""}`));
-  parts.push(docxParagraph(`영역 만점: ${rubric.totalScore || ""}점`));
-  (rubric.essayRubrics || []).forEach((essayRubric) => {
-    parts.push(docxParagraph(`논술형 문항 ${essayRubric.essayQuestionIndex || ""} ${essayRubric.essayQuestionTitle || ""}`, { bold: true }));
-    parts.push(docxTable([
-      ["평가요소", "배점", "상", "중", "하"],
-      ...(essayRubric.rows || []).map((row) => [
-        row.criterion || "",
-        `${row.maxScore || ""}점`,
-        row.high || "",
-        row.middle || "",
-        row.low || ""
-      ])
-    ]));
-  });
+    parts.push(docxParagraph("논술형 채점 루브릭", { heading: true }));
+    const rubric = content.rubric && typeof content.rubric === "object" && !Array.isArray(content.rubric)
+      ? content.rubric as {
+        assessmentAreaName?: string;
+        totalScore?: number;
+        essayRubrics?: Array<{
+          essayQuestionIndex?: number;
+          essayQuestionTitle?: string;
+          rows?: Array<{ criterion?: string; maxScore?: number; high?: string; middle?: string; low?: string }>;
+        }>;
+      }
+      : {};
+    parts.push(docxParagraph(`평가 영역명: ${rubric.assessmentAreaName || ""}`));
+    parts.push(docxParagraph(`영역 만점: ${rubric.totalScore || ""}점`));
+    (rubric.essayRubrics || []).forEach((essayRubric) => {
+      parts.push(docxParagraph(`논술형 문항 ${essayRubric.essayQuestionIndex || ""} ${essayRubric.essayQuestionTitle || ""}`, { bold: true }));
+      parts.push(docxTable([
+        ["평가요소", "배점", "상", "중", "하"],
+        ...(essayRubric.rows || []).map((row) => [
+          row.criterion || "",
+          `${row.maxScore || ""}점`,
+          row.high || "",
+          row.middle || "",
+          row.low || ""
+        ])
+      ]));
+    });
+  }
 
   parts.push(docxParagraph("게임 활동", { heading: true }));
   (content.gameActivities || []).forEach((item, index) => {
@@ -359,21 +433,26 @@ function contentToText(content: GeneratedContent) {
   (content.examQuestions || []).forEach((item, index) => {
     lines.push(`${index + 1}. ${formatMathText(item.question)}`);
     if (item.difficulty) lines.push(`난이도: ${item.difficulty}`);
+    if (item.choices?.length) item.choices.forEach((choice, ci) => lines.push(choiceLabel(choice, ci)));
     lines.push(`정답: ${formatMathText(item.answer)}`);
     lines.push(`풀이 과정: ${formatMathText(item.solution)}`);
   });
 
-  lines.push("", "[논술형 예시 문항]");
-  (content.essayQuestions || []).forEach((item, index) => {
-    lines.push(`${index + 1}. ${formatMathText(item.title || item.question)}`);
-    if (item.scenario) lines.push(`상황: ${formatMathText(item.scenario)}`);
-    (item.passages || []).forEach((passage) => lines.push(`${passage.label} ${formatMathText(passage.text)}`));
-    (item.subQuestions || []).forEach((subQuestion) => {
-      lines.push(`${subQuestion.number} ${formatMathText(subQuestion.question)}`);
-      lines.push(`모범 답안: ${formatMathText(subQuestion.answer)}`);
+  lines.push("", "[논술형 평가 문항]");
+  if (content.essayMarkdown) {
+    lines.push(content.essayMarkdown);
+  } else {
+    (content.essayQuestions || []).forEach((item, index) => {
+      lines.push(`${index + 1}. ${formatMathText(item.title || item.question)}`);
+      if (item.scenario) lines.push(`상황: ${formatMathText(item.scenario)}`);
+      (item.passages || []).forEach((passage) => lines.push(`${passage.label} ${formatMathText(passage.text)}`));
+      (item.subQuestions || []).forEach((subQuestion) => {
+        lines.push(`${subQuestion.number} ${formatMathText(subQuestion.question)}`);
+        lines.push(`모범 답안: ${formatMathText(subQuestion.answer)}`);
+      });
+      if (!item.subQuestions?.length) lines.push(`모범 답안: ${formatMathText(item.modelAnswer)}`);
     });
-    if (!item.subQuestions?.length) lines.push(`모범 답안: ${formatMathText(item.modelAnswer)}`);
-  });
+  }
 
   lines.push("", "[게임 활동]");
   (content.gameActivities || []).forEach((item, index) => {
@@ -483,18 +562,20 @@ function contentToWordHtml(content: GeneratedContent) {
           <div class="box">
             <p><strong>${index + 1}. ${escapeHtml(item.question)}</strong></p>
             ${item.difficulty ? `<p>난이도: ${escapeHtml(item.difficulty)}</p>` : ""}
+            ${item.choices?.length ? item.choices.map((choice, ci) => `<p>${escapeHtml(choiceLabel(choice, ci))}</p>`).join("") : ""}
             <p>정답: ${escapeHtml(item.answer)}</p>
             <p>풀이 과정: ${escapeHtml(item.solution)}</p>
           </div>
         `).join("")}
 
-        <h2>논술형 예시 문항</h2>
-        ${essayHtml}
-
+        <h2>논술형 평가 문항</h2>
+        ${content.essayMarkdown
+          ? `<div class="markdown-body">${renderMarkdownToHtml(content.essayMarkdown)}</div>`
+          : `${essayHtml}
         <h2>논술형 채점 루브릭</h2>
         <p><strong>평가 영역명</strong>: ${escapeHtml(rubric.assessmentAreaName || "")}</p>
         <p><strong>영역 만점</strong>: ${escapeHtml(rubric.totalScore || "")}점</p>
-        ${rubricHtml}
+        ${rubricHtml}`}
 
         <h2>게임 활동</h2>
         ${(content.gameActivities || []).map((item, index) => `
@@ -633,6 +714,7 @@ function GeneratedContentView({
     content.checkQuizzes?.length ||
     content.examQuestions?.length ||
     content.essayQuestions?.length ||
+    content.essayMarkdown ||
     content.gameActivities?.length ||
     content.teacherTips?.intro ||
     content.teacherTips?.development ||
@@ -694,6 +776,11 @@ function GeneratedContentView({
           <div className="question-card" key={`${item.question}-${index}`}>
             <strong>{index + 1}. <Text>{item.question}</Text></strong>
             {item.difficulty ? <p>난이도: {item.difficulty}</p> : null}
+            {item.choices?.length ? (
+              <div className="choice-list" style={{ margin: "6px 0" }}>
+                {item.choices.map((choice, ci) => <p key={ci} style={{ margin: "2px 0" }}>{choiceLabel(choice, ci)}</p>)}
+              </div>
+            ) : null}
             <p>정답: <Text>{item.answer}</Text></p>
             <p>풀이 과정: <Text>{item.solution}</Text></p>
           </div>
@@ -703,45 +790,53 @@ function GeneratedContentView({
       <section className="panel">
         <div className="section-heading">
           <div>
-            <h3>논술형 예시 문항</h3>
-            <p className="muted">평가문항지형 논술형 문항과 루브릭을 함께 새로 개발합니다.</p>
+            <h3>논술형 평가 문항</h3>
+            <p className="muted">실전 평가문항지(상황·제시문·소문항·모범답안·채점기준표)를 새로 개발합니다.</p>
           </div>
           <button className="secondary-button" type="button" onClick={() => onGenerateSection("essay")} disabled={focusedGenerating !== ""}>
             {focusedGenerating === "essay" ? "생성중..." : "고품질 논술형 새로 개발"}
           </button>
         </div>
-        {(content.essayQuestions || []).map((item, index) => (
-          <div className="question-card" key={`${item.question}-${index}`}>
-            <strong>{index + 1}. <Text>{item.title || item.question}</Text></strong>
-            {item.scenario ? <p><strong>상황</strong>: <Text>{item.scenario}</Text></p> : null}
-            {item.passages?.length ? (
-              <div className="passage-list">
-                {item.passages.map((passage) => (
-                  <p key={`${passage.label}-${passage.text}`}>
-                    <strong>{passage.label}</strong> <Text>{passage.text}</Text>
-                  </p>
-                ))}
-              </div>
-            ) : null}
-            {item.subQuestions?.length ? (
-              <div className="stack-sm">
-                {item.subQuestions.map((subQuestion) => (
-                  <div className="sub-question" key={`${subQuestion.number}-${subQuestion.question}`}>
-                    <p><strong>{subQuestion.number}</strong> <Text>{subQuestion.question}</Text></p>
-                    <p><strong>모범 답안</strong>: <Text>{subQuestion.answer}</Text></p>
+        {content.essayMarkdown ? (
+          <div
+            className="markdown-body"
+            dangerouslySetInnerHTML={{ __html: renderMarkdownToHtml(content.essayMarkdown) }}
+          />
+        ) : (
+          <>
+            {(content.essayQuestions || []).map((item, index) => (
+              <div className="question-card" key={`${item.question}-${index}`}>
+                <strong>{index + 1}. <Text>{item.title || item.question}</Text></strong>
+                {item.scenario ? <p><strong>상황</strong>: <Text>{item.scenario}</Text></p> : null}
+                {item.passages?.length ? (
+                  <div className="passage-list">
+                    {item.passages.map((passage) => (
+                      <p key={`${passage.label}-${passage.text}`}>
+                        <strong>{passage.label}</strong> <Text>{passage.text}</Text>
+                      </p>
+                    ))}
                   </div>
-                ))}
+                ) : null}
+                {item.subQuestions?.length ? (
+                  <div className="stack-sm">
+                    {item.subQuestions.map((subQuestion) => (
+                      <div className="sub-question" key={`${subQuestion.number}-${subQuestion.question}`}>
+                        <p><strong>{subQuestion.number}</strong> <Text>{subQuestion.question}</Text></p>
+                        <p><strong>모범 답안</strong>: <Text>{subQuestion.answer}</Text></p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p>모범 답안: <Text>{item.modelAnswer}</Text></p>
+                )}
               </div>
-            ) : (
-              <p>모범 답안: <Text>{item.modelAnswer}</Text></p>
-            )}
-          </div>
-        ))}
-      </section>
-
-      <section className="panel">
-        <h3>논술형 채점 루브릭</h3>
-        <RubricView rubric={content.rubric} />
+            ))}
+            <div style={{ marginTop: 16 }}>
+              <h4 style={{ margin: "8px 0" }}>논술형 채점 루브릭</h4>
+              <RubricView rubric={content.rubric} />
+            </div>
+          </>
+        )}
       </section>
 
       <section className="panel">
@@ -793,6 +888,36 @@ function GeneratedContentView({
   );
 }
 
+// 이미지를 최대 변 길이 maxDim 이하로 축소해 JPEG data URL로 변환한다.
+// Vercel 요청 본문 한도와 토큰 비용을 줄이기 위해 클라이언트에서 미리 압축한다.
+function downscaleImageToDataUrl(file: File, maxDim = 1600, quality = 0.85): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("이미지를 읽지 못했습니다."));
+    reader.onload = () => {
+      const image = new Image();
+      image.onerror = () => reject(new Error("이미지를 불러오지 못했습니다."));
+      image.onload = () => {
+        const scale = Math.min(1, maxDim / Math.max(image.width, image.height));
+        const width = Math.round(image.width * scale);
+        const height = Math.round(image.height * scale);
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          reject(new Error("이미지 처리를 지원하지 않는 브라우저입니다."));
+          return;
+        }
+        ctx.drawImage(image, 0, 0, width, height);
+        resolve(canvas.toDataURL("image/jpeg", quality));
+      };
+      image.src = reader.result as string;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 export function TeacherDashboard() {
   const [data, setData] = useState<BootstrapData | null>(null);
   const [notice, setNotice] = useState<Notice>({ tone: "normal", message: "" });
@@ -802,6 +927,14 @@ export function TeacherDashboard() {
   const [subunitId, setSubunitId] = useState("");
   const [result, setResult] = useState<RenderedResult | null>(null);
   const [focusedGenerating, setFocusedGenerating] = useState<"" | "exam" | "essay" | "game" | "all">("");
+  const [targetLevel, setTargetLevel] = useState<"A" | "B" | "C" | "D" | "E">("C");
+  const [leveledNote, setLeveledNote] = useState("");
+  const [leveledGenerating, setLeveledGenerating] = useState(false);
+  const [referenceText, setReferenceText] = useState("");
+  const [referenceImage, setReferenceImage] = useState<string | null>(null);
+  const [referenceGenerating, setReferenceGenerating] = useState(false);
+  const referenceFileRef = useRef<HTMLInputElement>(null);
+  const resultRef = useRef<HTMLDivElement>(null);
 
   async function refresh() {
     const nextData = await apiRequest<BootstrapData>("/api/bootstrap");
@@ -811,6 +944,52 @@ export function TeacherDashboard() {
   useEffect(() => {
     refresh().catch((error) => setNotice({ tone: "error", message: error.message }));
   }, []);
+
+  // 생성 결과의 LaTeX 수식($...$)을 MathJax로 조판한다.
+  useEffect(() => {
+    if (!result) return;
+    const w = window as unknown as {
+      MathJax?: { typesetPromise?: (els?: unknown[]) => Promise<void>; typesetClear?: (els?: unknown[]) => void };
+    };
+    const typeset = () => {
+      if (!w.MathJax?.typesetPromise || !resultRef.current) return;
+      try {
+        w.MathJax.typesetClear?.([resultRef.current]);
+        w.MathJax.typesetPromise([resultRef.current]).catch(() => {});
+      } catch {
+        /* noop */
+      }
+    };
+    if (w.MathJax?.typesetPromise) {
+      const id = window.setTimeout(typeset, 0);
+      return () => window.clearTimeout(id);
+    }
+    if (!document.getElementById("mathjax-cdn")) {
+      (w as unknown as { MathJax: unknown }).MathJax = {
+        tex: { inlineMath: [["$", "$"]], displayMath: [["$$", "$$"], ["\\[", "\\]"]] },
+        svg: { fontCache: "global" },
+        startup: { typeset: false }
+      };
+      const script = document.createElement("script");
+      script.id = "mathjax-cdn";
+      script.src = "https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js";
+      script.async = true;
+      script.onload = typeset;
+      document.head.appendChild(script);
+      return;
+    }
+    const poll = window.setInterval(() => {
+      if (w.MathJax?.typesetPromise) {
+        window.clearInterval(poll);
+        typeset();
+      }
+    }, 200);
+    const stop = window.setTimeout(() => window.clearInterval(poll), 6000);
+    return () => {
+      window.clearInterval(poll);
+      window.clearTimeout(stop);
+    };
+  }, [result]);
 
   const publishers = useMemo(() => {
     if (!data || !gradeId) return [];
@@ -929,6 +1108,64 @@ export function TeacherDashboard() {
     }
   }
 
+  async function generateLeveled() {
+    if (!subunitId) {
+      setNotice({ tone: "error", message: "소단원을 선택해 주세요." });
+      return;
+    }
+    try {
+      setLeveledGenerating(true);
+      setNotice({ tone: "normal", message: `목표 성취수준 ${targetLevel}에 맞춘 문항을 생성하는 중입니다. (이 결과는 저장되지 않습니다.)` });
+      const response = await apiRequest<{ content: GeneratedContent; hasLevelData?: boolean }>("/api/generate-leveled", {
+        method: "POST",
+        body: JSON.stringify({ subunitId, level: targetLevel, note: leveledNote })
+      });
+      setResult({ content: response.content, subunitId });
+      setNotice({
+        tone: "normal",
+        message: response.hasLevelData === false
+          ? `수준 ${targetLevel} 문항을 생성했습니다. (이 성취기준은 성취수준 DB에 없어 성취기준만으로 출제했습니다. 저장되지 않음)`
+          : `수준 ${targetLevel} 문항을 생성했습니다. (일회성 결과 — 저장되지 않으니 필요하면 복사/내보내기 하세요.)`
+      });
+    } catch (error) {
+      setNotice({ tone: "error", message: error instanceof Error ? error.message : "수준별 생성 실패" });
+    } finally {
+      setLeveledGenerating(false);
+    }
+  }
+
+  async function handleReferenceFile(file?: File | null) {
+    if (!file || !file.type.startsWith("image/")) return;
+    try {
+      const dataUrl = await downscaleImageToDataUrl(file);
+      setReferenceImage(dataUrl);
+      setNotice({ tone: "normal", message: "이미지를 첨부했습니다. '기존 문항으로 생성'을 누르세요." });
+    } catch (error) {
+      setNotice({ tone: "error", message: error instanceof Error ? error.message : "이미지 첨부 실패" });
+    }
+  }
+
+  async function generateFromReference() {
+    if (!referenceText.trim() && !referenceImage) {
+      setNotice({ tone: "error", message: "분석할 기존 문항(텍스트 또는 이미지)을 입력해 주세요." });
+      return;
+    }
+    try {
+      setReferenceGenerating(true);
+      setNotice({ tone: "normal", message: "기존 문항을 분석해 성취기준을 파악하고 새 문항을 생성하는 중입니다. (저장되지 않습니다.)" });
+      const response = await apiRequest<{ content: GeneratedContent }>("/api/generate-reference", {
+        method: "POST",
+        body: JSON.stringify({ referenceText, imageDataUrl: referenceImage, note: leveledNote })
+      });
+      setResult({ content: response.content, subunitId: subunitId || "reference" });
+      setNotice({ tone: "normal", message: "기존 문항 분석 결과를 생성했습니다. (일회성 — 필요하면 복사/내보내기 하세요.)" });
+    } catch (error) {
+      setNotice({ tone: "error", message: error instanceof Error ? error.message : "기존 문항 분석 실패" });
+    } finally {
+      setReferenceGenerating(false);
+    }
+  }
+
   async function copyResult() {
     if (!result) {
       setNotice({ tone: "error", message: "복사할 결과가 없습니다." });
@@ -1004,33 +1241,106 @@ export function TeacherDashboard() {
           </label>
         </div>
         <div className="action-row">
-          <button className="primary-button" type="button" onClick={() => generate(false)} disabled={focusedGenerating !== ""}>
+          <button className="primary-button" type="button" onClick={() => generate(false)} disabled={focusedGenerating !== "" || leveledGenerating}>
             초안 생성
           </button>
-          <button className="secondary-button" type="button" onClick={generateFinalPackage} disabled={focusedGenerating !== ""}>
+          <button className="secondary-button" type="button" onClick={generateFinalPackage} disabled={focusedGenerating !== "" || leveledGenerating}>
             {focusedGenerating === "all" ? "최종 생성중..." : "최종 고품질 자료 생성"}
           </button>
-          <button className="secondary-button" type="button" onClick={() => generate(true)} disabled={focusedGenerating !== ""}>
+          <button className="secondary-button" type="button" onClick={() => generate(true)} disabled={focusedGenerating !== "" || leveledGenerating}>
             초안 다시 생성
           </button>
           <button className="secondary-button" type="button" onClick={exportWord}>워드로 내보내기</button>
           <button className="secondary-button" type="button" onClick={copyResult}>결과 복사</button>
           <button className="secondary-button" type="button" onClick={() => window.print()}>인쇄</button>
         </div>
+
+        <div className="leveled-row" style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid #e5e7eb", display: "flex", flexWrap: "wrap", gap: 10, alignItems: "flex-end" }}>
+          <label style={{ display: "flex", flexDirection: "column", fontSize: 13, fontWeight: 700, color: "#475569", gap: 4 }}>
+            수준별 문항 생성 (목표 성취수준)
+            <select value={targetLevel} onChange={(event) => setTargetLevel(event.target.value as "A" | "B" | "C" | "D" | "E")}>
+              <option value="A">수준 A (상위)</option>
+              <option value="B">수준 B</option>
+              <option value="C">수준 C (중간)</option>
+              <option value="D">수준 D</option>
+              <option value="E">수준 E (기초)</option>
+            </select>
+          </label>
+          <input
+            type="text"
+            value={leveledNote}
+            onChange={(event) => setLeveledNote(event.target.value)}
+            placeholder="출제자 요청사항(선택): 예) 실생활 배경, 서술형 위주 등"
+            style={{ flex: "1 1 280px", minWidth: 220 }}
+          />
+          <button className="primary-button" type="button" onClick={generateLeveled} disabled={leveledGenerating || focusedGenerating !== ""}>
+            {leveledGenerating ? "수준별 생성중..." : `수준 ${targetLevel} 문항 생성`}
+          </button>
+          <span className="muted" style={{ fontSize: 12 }}>이 결과는 저장되지 않습니다. 필요하면 복사/내보내기 하세요.</span>
+        </div>
+
         <p className={`notice ${notice.tone === "error" ? "notice-error" : ""}`}>{notice.message}</p>
       </section>
 
-      {result ? (
-        <GeneratedContentView
-          content={result.content}
-          focusedGenerating={focusedGenerating}
-          onGenerateSection={generateSection}
+      <section className="panel">
+        <div className="section-heading">
+          <div>
+            <h3>기존 문항 / 이미지로 문항 생성</h3>
+            <p className="muted">기존 평가 문항을 이미지나 텍스트로 넣으면 AI가 성취기준을 자동 파악해 유사·심화 문항을 만듭니다. (소단원 선택 불필요, 저장 안 됨)</p>
+          </div>
+          <input
+            type="file"
+            accept="image/*"
+            ref={referenceFileRef}
+            style={{ display: "none" }}
+            onChange={(event) => handleReferenceFile(event.target.files?.[0])}
+          />
+          <button className="secondary-button" type="button" onClick={() => referenceFileRef.current?.click()} disabled={referenceGenerating}>
+            이미지 첨부
+          </button>
+        </div>
+
+        <textarea
+          value={referenceText}
+          onChange={(event) => setReferenceText(event.target.value)}
+          onPaste={(event) => {
+            const item = Array.from(event.clipboardData.items).find((entry) => entry.type.startsWith("image/"));
+            if (item) handleReferenceFile(item.getAsFile());
+          }}
+          placeholder="기존 문항 텍스트를 입력하거나, 문항 이미지를 여기에 붙여넣기(Ctrl+V) 하세요."
+          rows={4}
+          style={{ width: "100%", marginTop: 8 }}
         />
-      ) : (
-        <section className="panel">
-          <p>소단원을 선택하고 자료를 생성하면 여기에 결과가 표시됩니다.</p>
-        </section>
-      )}
+
+        {referenceImage ? (
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 8 }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={referenceImage} alt="첨부한 기존 문항" style={{ height: 96, borderRadius: 8, border: "1px solid #d1d5db" }} />
+            <button className="secondary-button" type="button" onClick={() => setReferenceImage(null)}>이미지 제거</button>
+          </div>
+        ) : null}
+
+        <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <button className="primary-button" type="button" onClick={generateFromReference} disabled={referenceGenerating || leveledGenerating || focusedGenerating !== ""}>
+            {referenceGenerating ? "분석·생성중..." : "기존 문항으로 생성"}
+          </button>
+          <span className="muted" style={{ fontSize: 12 }}>위 &lsquo;출제자 요청사항&rsquo; 입력칸의 내용도 함께 반영됩니다.</span>
+        </div>
+      </section>
+
+      <div ref={resultRef}>
+        {result ? (
+          <GeneratedContentView
+            content={result.content}
+            focusedGenerating={focusedGenerating}
+            onGenerateSection={generateSection}
+          />
+        ) : (
+          <section className="panel">
+            <p>소단원을 선택하고 자료를 생성하면 여기에 결과가 표시됩니다.</p>
+          </section>
+        )}
+      </div>
     </div>
   );
 }

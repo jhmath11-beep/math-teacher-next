@@ -18,6 +18,7 @@ export type GeneratedContent = {
   examQuestions: Array<{
     difficulty?: string;
     question: string;
+    choices?: string[];
     answer: string;
     solution: string;
   }>;
@@ -30,6 +31,9 @@ export type GeneratedContent = {
     modelAnswer: string;
   }>;
   rubric: unknown;
+  // 논술형을 실전 평가지 수준으로 내기 위해 마크다운 문자열로 생성한다(표·LaTeX 포함).
+  // 존재하면 구조화 essayQuestions/rubric 대신 이 마크다운을 렌더링한다.
+  essayMarkdown?: string;
   gameActivities: Array<{
     title: string;
     duration: string;

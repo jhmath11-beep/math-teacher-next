@@ -15,7 +15,7 @@ function mergeSection(base: GeneratedContent, update: GeneratedContent, section:
   }
 
   if (section === "essay") {
-    return { ...base, essayQuestions: update.essayQuestions, rubric: update.rubric };
+    return { ...base, essayMarkdown: update.essayMarkdown, essayQuestions: update.essayQuestions, rubric: update.rubric };
   }
 
   return { ...base, gameActivities: update.gameActivities };
