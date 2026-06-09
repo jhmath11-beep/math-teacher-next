@@ -60,11 +60,15 @@ export async function POST(request: Request) {
       .maybeSingle();
 
     const currentContent = normalizeGeneratedContent(saved?.content || {});
+    const levels = ["A", "B", "C", "D", "E"];
+    const requestedLevel = typeof body.level === "string" && levels.includes(body.level) ? body.level : "";
+
     const result = await generateFocusedSection({
       subunitTitle: subunit.title,
       achievementStandard: subunit.achievement_standard || "",
       extractedText: textRow.extracted_text,
-      section: body.section
+      section: body.section,
+      targetLevel: requestedLevel as "A" | "B" | "C" | "D" | "E" | ""
     });
 
     const mergedContent = mergeSection(currentContent, result.content, body.section);

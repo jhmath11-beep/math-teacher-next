@@ -20,6 +20,7 @@ export const EVALUATION_EXPERT_GUIDE = [
   "8. (변형 원칙) 교과서 예제를 그대로 복사하지 말고 숫자·맥락·조건·표현을 새롭게 변형한다.",
   "9. (문항 깊이·변별력) 단순 정의 확인이나 한 번의 계산으로 끝나는 문항을 만들지 않는다. 각 문항은 2개 이상의 개념을 연결하거나, 오개념을 판별하게 하거나, 조건을 역추론하게 하거나, 여러 표현(식·표·그래프)을 연결하게 하여 실제 학교 시험의 변별력 수준에 도달해야 한다.",
   "10. (수식 표기 - 매우 중요) 모든 수식과 수·기호는 LaTeX 인라인 표기 $...$ 로 작성한다. 예: 분수 $\\\\frac{1}{2}$, 제곱근 $\\\\sqrt{3}$, 거듭제곱 $x^{2}$, 아래첨자 $a_{1}$, 부등호 $\\\\le$, 순환소수 $0.\\\\overline{3}$. 단독 블록 수식 $$...$$ 나 \\\\[ \\\\]는 금지하고 인라인 $...$ 만 쓴다. 이 결과는 JSON 문자열이므로 LaTeX 백슬래시 명령어는 반드시 백슬래시 2개로 작성한다(예: $\\\\frac{1}{2}$, $\\\\sqrt{3}$). 절대 백슬래시 1개로 쓰지 않는다.",
+  "10-1. (선택지·정답도 $ 필수) 객관식 보기(choices)와 정답(answer)에 들어가는 수식도 각 항목마다 반드시 $...$로 감싼다. 예: choices를 [\"$-\\\\frac{3}{2}x^{2}y^{4}$\", \"$3x^{2}y^{4}$\", ...]처럼, answer도 \"$-\\\\frac{3}{2}x^{2}y^{4}$\"처럼 작성한다. $ 없이 \\\\frac이나 x^{2}를 그대로 두면 안 된다.",
   ""
 ].join("\n");
 
@@ -44,11 +45,23 @@ export function essayMarkdownSpec(count: number) {
   ].join("\n");
 }
 
+// 목표 성취수준(A~E) 난이도 지시문. 확인퀴즈·시험대비문항·논술형에만 적용한다.
+function targetLevelDirective(targetLevelText?: string) {
+  if (!targetLevelText) return "";
+  return [
+    "[목표 성취수준 - 난이도 기준]",
+    targetLevelText,
+    "→ 확인 퀴즈, 시험대비문항, 논술형 문항의 난이도를 위 목표 성취수준에 정확히 맞추세요(더 쉽거나 어렵게 만들지 마세요).",
+    "→ 개념 요약, 게임 활동, 교사용 팁은 목표 성취수준과 무관하게 일반 수준으로 작성하세요."
+  ].join("\n");
+}
+
 export function buildMathTeacherPrompt(input: {
   subunitTitle: string;
   extractedText: string;
   achievementStandard?: string;
   achievementLevelSpectrum?: string;
+  targetLevelText?: string;
 }) {
   return [
     "다음은 중학교 수학 교과서의 특정 소단원 내용입니다.",
@@ -63,6 +76,8 @@ export function buildMathTeacherPrompt(input: {
     input.achievementStandard || "관리자가 별도로 연결한 성취기준이 없습니다. 교과서 텍스트와 소단원명을 바탕으로 관련 성취기준 후보를 제시하세요.",
     "",
     input.achievementLevelSpectrum || "",
+    "",
+    targetLevelDirective(input.targetLevelText),
     "",
     "다음 형식으로 수업 및 평가 자료를 생성하세요.",
     "",
@@ -174,8 +189,11 @@ export function buildFocusedSectionPrompt(input: {
   extractedText: string;
   achievementStandard?: string;
   achievementLevelSpectrum?: string;
+  targetLevelText?: string;
   section: "exam" | "essay" | "game";
 }) {
+  // 게임 섹션은 난이도와 무관하므로 목표 수준 지시문을 넣지 않는다.
+  const levelLine = input.section === "game" ? "" : targetLevelDirective(input.targetLevelText);
   const base = [
     "다음은 중학교 수학 교과서의 특정 소단원 내용입니다.",
     "",
@@ -189,6 +207,8 @@ export function buildFocusedSectionPrompt(input: {
     input.achievementStandard || "관리자가 별도로 연결한 성취기준이 없습니다.",
     "",
     input.achievementLevelSpectrum || "",
+    "",
+    levelLine,
     "",
     "공통 지침:",
     "- 기존에 생성된 결과를 수정하거나 확장한다고 생각하지 마세요.",
@@ -354,38 +374,28 @@ export function buildReferenceAnalysisPrompt(input: {
     "[2022 개정 중학교 수학 성취기준 목록]",
     standardsList,
     "",
+    "이 작업은 위의 어떤 소단원 선택이나 참고 메시지와도 무관합니다. 오직 위에 입력된 기존 문항(이미지/텍스트)만 근거로 삼으세요.",
+    "",
     "작업 절차:",
-    "1. 입력 자료를 분석하여 가장 적합한 성취기준(코드 포함)을 위 목록에서 1~2개 찾아 achievementStandards에 담으세요. relation에는 '직접 분석'으로 표기하세요.",
-    "2. 파악한 성취기준에 근거하여, 입력 문항과 같은 개념을 다루되 숫자·맥락·조건·발문을 새롭게 변형하고 심화한 새 문항 세트를 생성하세요.",
-    "   - 개념 확인용 객관식 3문항(checkQuizzes, 보기 5개·길이순·대표 오개념 오답)",
-    "   - 시험대비 객관식(5지선다) 5문항(examQuestions, 보기 5개·길이순, 정답·단계별 풀이 포함, 변별력 있게)",
-    "   - 논술형은 essayMarkdown(마크다운 문자열)으로 담으세요.",
-    essayMarkdownSpec(2),
-    "3. 입력 문항을 그대로 베끼지 말고, 같은 성취기준을 평가하는 새 문항으로 재구성하세요. 문항마다 유형(계산형/개념판별형/오류수정형/실생활형/추론형)을 다르게 하세요.",
+    "1. 입력 자료를 분석하여 그 문항이 다루는 핵심 개념·소재와 가장 적합한 성취기준(코드 포함)을 위 목록에서 1~2개 찾아 achievementStandards에 담으세요. relation에는 '직접 분석'으로 표기하세요.",
+    "2. 파악한 개념·소재를 유지하되, 입력 문항과 '완전히 다른 구성'의 유사 문항을 examQuestions에 8문항 만드세요. 이것이 유일한 산출물입니다. (확인 퀴즈·논술형·개념 요약·게임 등 다른 항목은 절대 만들지 마세요.)",
+    "   - 난이도를 다양하게 분산하세요: 쉬움 2 · 보통 3 · 어려움 2 · 최상 1. 각 문항 difficulty 필드에 난이도를 명시하세요.",
+    "   - 유형을 골고루 섞으세요: 객관식(보기 5개)과 서술형을 함께, 계산형·개념판별형·오류수정형·실생활 맥락형·역추론형 등 서로 다르게.",
+    "   - 객관식 문항은 choices(보기 5개, 길이순)를 넣고, 서술형 문항은 choices 없이 작성하세요. 모든 문항에 정답(answer)과 단계별 풀이(solution)를 포함하세요.",
+    "3. 입력 문항을 그대로 베끼거나 숫자만 바꾸지 말고, 같은 개념을 평가하는 완전히 새로운 문항으로 재구성하세요.",
     "- 모든 정답·풀이를 끝까지 검증해 계산 오류가 없게 하세요.",
-    "- choices 배열에는 보기 텍스트만 넣고, answer·solution·explanation은 절대 choices 안에 넣지 마세요(각자 별도 필드).",
-    input.requestNote ? `[출제자 추가 요청사항 - 최우선 반영]\n${input.requestNote}` : "",
-    "모든 수식·기호는 LaTeX 인라인 $...$로 표기하세요(JSON이므로 백슬래시는 2개: $\\\\frac{1}{2}$, $\\\\sqrt{3}$). 단독 블록 $$...$$는 금지. 최종 응답은 JSON 객체 하나만 출력하세요.",
+    "- choices 배열에는 보기 텍스트만 넣고, answer·solution은 절대 choices 안에 넣지 마세요.",
+    "모든 수식·기호는 LaTeX 인라인 $...$로 표기하세요(JSON이므로 백슬래시는 2개: $\\\\frac{1}{2}$, $\\\\sqrt{3}$). 단독 블록 $$...$$는 금지. achievementStandards와 examQuestions 외의 키는 만들지 마세요. 최종 응답은 JSON 객체 하나만 출력하세요.",
     "",
     "JSON 구조:",
     JSON.stringify({
       achievementStandards: [
         { code: "9수04-01", description: "성취기준 문장", relation: "직접 분석" }
       ],
-      checkQuizzes: [
-        {
-          difficulty: "보통",
-          type: "객관식",
-          question: "문항",
-          choices: ["선택지1", "선택지2", "선택지3", "선택지4", "선택지5"],
-          answer: "정답",
-          explanation: "해설"
-        }
-      ],
       examQuestions: [
-        { difficulty: "어려움", question: "객관식 시험대비문항", choices: ["선택지1", "선택지2", "선택지3", "선택지4", "선택지5"], answer: "정답 보기 또는 번호", solution: "단계별 풀이" }
-      ],
-      essayMarkdown: "### [논술형 1] 제목\\n\\n**상황** ...\\n\\n**제시문**\\n(가) ...\\n(나) ...\\n(다) ...\\n\\n**문제**\\n(1) ...\\n(2) ...\\n(3) ...\\n\\n[모범답안]\\n(1) ...\\n(2) ...\\n(3) ...\\n\\n[채점기준표]\\n| 평가요소 | 배점 | 상 | 중 | 하 |\\n| --- | --- | --- | --- | --- |\\n| 개념 이해 | 5 | ... | ... | ... |"
+        { difficulty: "쉬움", question: "유사 문항(객관식)", choices: ["선택지1", "선택지2", "선택지3", "선택지4", "선택지5"], answer: "정답 보기 또는 번호", solution: "단계별 풀이" },
+        { difficulty: "어려움", question: "유사 문항(서술형)", answer: "정답", solution: "단계별 풀이" }
+      ]
     }, null, 2)
   ].filter(Boolean).join("\n");
 }

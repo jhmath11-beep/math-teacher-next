@@ -56,6 +56,16 @@ function fixEssayMarkdown(md: string): string {
     .join("");
 }
 
+// 모델이 선택지·정답의 수식을 $...$로 감싸지 않은 경우를 보정한다.
+// 한글이 없고 LaTeX 명령어/첨자가 있는 순수 수식 문자열이면 $...$로 감싸 MathJax가 렌더하게 한다.
+function ensureMath(value: unknown): string {
+  const s = String(value ?? "");
+  if (!s || s.includes("$")) return s;
+  const hasLatex = /\\[a-zA-Z]+|[\^_]\{|[\^_]-?\d|\\frac|\\sqrt/.test(s);
+  const hasHangul = /[가-힣]/.test(s);
+  return hasLatex && !hasHangul ? `$${s}$` : s;
+}
+
 export function normalizeGeneratedContent(raw: unknown): GeneratedContent {
   const data = asRecord(raw);
   const tips = asRecord(pickValue(data, ["teacherTips", "교사용 활용 팁", "교사용활용팁", "활용 팁"]));
@@ -79,8 +89,8 @@ export function normalizeGeneratedContent(raw: unknown): GeneratedContent {
         difficulty: String(row.difficulty || row["난이도"] || ""),
         type: String(row.type || row["유형"] || ""),
         question: String(row.question || row["문항"] || row["문제"] || ""),
-        choices: asArray(row.choices || row["선택지"]).map(String),
-        answer: String(row.answer || row["정답"] || ""),
+        choices: asArray(row.choices || row["선택지"]).map(ensureMath),
+        answer: ensureMath(row.answer || row["정답"] || ""),
         explanation: String(row.explanation || row["해설"] || "")
       };
     }),
@@ -89,8 +99,8 @@ export function normalizeGeneratedContent(raw: unknown): GeneratedContent {
       return {
         difficulty: String(row.difficulty || row["난이도"] || ""),
         question: String(row.question || row["문항"] || row["문제"] || ""),
-        choices: asArray(row.choices || row["선택지"] || row["보기"]).map(String),
-        answer: String(row.answer || row["정답"] || ""),
+        choices: asArray(row.choices || row["선택지"] || row["보기"]).map(ensureMath),
+        answer: ensureMath(row.answer || row["정답"] || ""),
         solution: String(row.solution || row["풀이 과정"] || row["풀이"] || "")
       };
     }),
@@ -120,6 +130,7 @@ export function normalizeGeneratedContent(raw: unknown): GeneratedContent {
     }),
     rubric: pickValue(data, ["rubric", "논술형 채점 루브릭", "채점 루브릭", "루브릭"]) || {},
     essayMarkdown: fixEssayMarkdown(String(pickValue(data, ["essayMarkdown", "논술형마크다운", "논술형 마크다운"]) || "")),
+    targetLevel: String(pickValue(data, ["targetLevel"]) || ""),
     gameActivities: asArray(pickValue(data, ["gameActivities", "게임 활동", "게임활동", "게임 활동 제작용 프롬프트 제작"])).map((item) => {
       const row = item && typeof item === "object" ? item as Record<string, unknown> : { title: String(item) };
       return {
@@ -165,13 +176,18 @@ export async function generateMathContent(input: {
   subunitTitle: string;
   extractedText: string;
   achievementStandard?: string;
+  targetLevel?: TargetLevel | "";
 }) {
-  const achievementLevelSpectrum = formatLevelSpectrum(extractStandardCode(input.achievementStandard));
-  const { parsed, model } = await callOpenAI(buildMathTeacherPrompt({ ...input, achievementLevelSpectrum }));
+  const code = extractStandardCode(input.achievementStandard);
+  const achievementLevelSpectrum = formatLevelSpectrum(code);
+  const targetLevelText = input.targetLevel ? formatTargetLevel(code, input.targetLevel) : "";
+  const { parsed, model } = await callOpenAI(buildMathTeacherPrompt({ ...input, achievementLevelSpectrum, targetLevelText }));
+  const content = normalizeGeneratedContent(parsed);
+  content.targetLevel = input.targetLevel || "";
   return {
     source: "ai",
     model,
-    content: normalizeGeneratedContent(parsed)
+    content
   };
 }
 
@@ -282,9 +298,12 @@ export async function generateFocusedSection(input: {
   extractedText: string;
   achievementStandard?: string;
   section: "exam" | "essay" | "game";
+  targetLevel?: TargetLevel | "";
 }) {
-  const achievementLevelSpectrum = formatLevelSpectrum(extractStandardCode(input.achievementStandard));
-  const { parsed, model } = await callOpenAI(buildFocusedSectionPrompt({ ...input, achievementLevelSpectrum }));
+  const code = extractStandardCode(input.achievementStandard);
+  const achievementLevelSpectrum = formatLevelSpectrum(code);
+  const targetLevelText = input.targetLevel ? formatTargetLevel(code, input.targetLevel) : "";
+  const { parsed, model } = await callOpenAI(buildFocusedSectionPrompt({ ...input, achievementLevelSpectrum, targetLevelText }));
   const normalized = normalizeGeneratedContent(parsed);
   return {
     source: "ai",

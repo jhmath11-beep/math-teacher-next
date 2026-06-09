@@ -101,6 +101,45 @@ function renderMarkdownToHtml(md: string): string {
   return out.join("");
 }
 
+// 내보내기/복사용: LaTeX 인라인 수식($...$)을 한글·워드에서 읽히는 유니코드 텍스트로 변환한다.
+// (화면·인쇄는 MathJax가 조판하므로 변환하지 않는다.)
+function texToUnicode(tex: string): string {
+  const sup: Record<string, string> = { "0": "⁰", "1": "¹", "2": "²", "3": "³", "4": "⁴", "5": "⁵", "6": "⁶", "7": "⁷", "8": "⁸", "9": "⁹", "+": "⁺", "-": "⁻", n: "ⁿ", x: "ˣ", a: "ᵃ", b: "ᵇ" };
+  const sub: Record<string, string> = { "0": "₀", "1": "₁", "2": "₂", "3": "₃", "4": "₄", "5": "₅", "6": "₆", "7": "₇", "8": "₈", "9": "₉", "+": "₊", "-": "₋" };
+  const toScriptOr = (g: string, map: Record<string, string>, caret: string) =>
+    [...g].every((c) => map[c]) ? [...g].map((c) => map[c]).join("") : `${caret}(${g})`;
+  const cmd: Record<string, string> = {
+    times: "×", div: "÷", le: "≤", leq: "≤", ge: "≥", geq: "≥", neq: "≠", ne: "≠", pm: "±", mp: "∓",
+    cdot: "·", triangle: "△", angle: "∠", pi: "π", alpha: "α", beta: "β", gamma: "γ", theta: "θ",
+    infty: "∞", cong: "≅", sim: "∼", approx: "≈", parallel: "∥", perp: "⊥", ldots: "…", cdots: "⋯",
+    leftrightarrow: "↔", rightarrow: "→", to: "→", Rightarrow: "⇒", overline: "", mathrm: "", left: "", right: "", quad: " ", qquad: "  "
+  };
+  let s = tex;
+  s = s.replace(/\^\{?\s*\\circ\s*\}?/g, "°"); // 50^\circ → 50°
+  // 분수보다 먼저 처리해야 분자/분모 안의 근호·윗줄이 살아남는다.
+  s = s.replace(/\\sqrt\s*\{([^{}]*)\}/g, "√($1)").replace(/\\sqrt\s*(\w)/g, "√$1");
+  s = s.replace(/\\overline\s*\{([^{}]*)\}/g, "$1̅");
+  s = s.replace(/\\mathrm\s*\{([^{}]*)\}/g, "$1");
+  // 분수는 중첩(분자에 또 분수)까지 잡도록 여러 번 적용한다.
+  for (let i = 0; i < 4; i += 1) {
+    const next = s.replace(/\\d?frac\s*\{([^{}]*)\}\s*\{([^{}]*)\}/g, (_m, a, b) => `(${a})/(${b})`);
+    if (next === s) break;
+    s = next;
+  }
+  s = s.replace(/\\([a-zA-Z]+)/g, (_m, name: string) => (cmd[name] !== undefined ? cmd[name] : ""));
+  s = s.replace(/\^\{([^{}]*)\}/g, (_m, g: string) => toScriptOr(g, sup, "^"));
+  s = s.replace(/\^(\w)/g, (_m, g: string) => toScriptOr(g, sup, "^"));
+  s = s.replace(/_\{([^{}]*)\}/g, (_m, g: string) => toScriptOr(g, sub, "_"));
+  s = s.replace(/_(\w)/g, (_m, g: string) => toScriptOr(g, sub, "_"));
+  s = s.replace(/[{}]/g, "").replace(/\\[ ,;!]/g, " ").replace(/\\/g, "");
+  return s;
+}
+
+// 문자열 전체에서 $...$ 구간만 유니코드 수식으로 치환한다.
+function mathToUnicode(str: string): string {
+  return String(str).replace(/\$([^$]*)\$/g, (_m, tex: string) => texToUnicode(tex));
+}
+
 const CIRCLED_NUMBERS = ["①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧", "⑨", "⑩"];
 
 // 보기 텍스트에 이미 ①~⑩ 번호가 있으면 그대로, 없으면 순번을 붙인다.
@@ -199,108 +238,122 @@ function docxTable(rows: unknown[][]) {
   `;
 }
 
-function contentToDocxDocumentXml(content: GeneratedContent) {
+function contentToDocxDocumentXml(content: GeneratedContent, sel: SectionSel = ALL_SECTIONS, meta: ExportMeta = {}) {
+  const head = unitHeaderText(meta);
   const parts: string[] = [];
-  parts.push(docxParagraph("수학교과 통합 웹앱 생성 자료", { heading: true, size: 36 }));
+  parts.push(docxParagraph(head.title, { heading: true, size: 36 }));
+  if (head.sub) parts.push(docxParagraph(head.sub));
 
   parts.push(docxParagraph("과목별 단원별 성취기준", { heading: true }));
   (content.achievementStandards || []).forEach((item) => {
     parts.push(docxParagraph(`${item.code} ${item.description} (${item.relation})`));
   });
 
-  parts.push(docxParagraph("개념 요약", { heading: true }));
-  (content.summary || []).forEach((item) => parts.push(docxBullet(item)));
+  if (content.summary?.length) {
+    parts.push(docxParagraph("개념 요약", { heading: true }));
+    content.summary.forEach((item) => parts.push(docxBullet(item)));
+  }
 
-  parts.push(docxParagraph("확인 퀴즈", { heading: true }));
-  (content.checkQuizzes || []).forEach((item, index) => {
-    parts.push(docxParagraph(`${index + 1}. ${item.question}`, { bold: true }));
-    parts.push(docxParagraph(`난이도: ${item.difficulty} / 유형: ${item.type}`));
-    if (item.choices?.length) parts.push(docxParagraph(`선택지: ${item.choices.join(" / ")}`));
-    parts.push(docxParagraph(`정답: ${item.answer}`));
-    if (item.explanation) parts.push(docxParagraph(`해설: ${item.explanation}`));
-  });
-
-  parts.push(docxParagraph("시험대비문항", { heading: true }));
-  (content.examQuestions || []).forEach((item, index) => {
-    parts.push(docxParagraph(`${index + 1}. ${item.question}`, { bold: true }));
-    if (item.difficulty) parts.push(docxParagraph(`난이도: ${item.difficulty}`));
-    if (item.choices?.length) item.choices.forEach((choice, ci) => parts.push(docxParagraph(choiceLabel(choice, ci))));
-    parts.push(docxParagraph(`정답: ${item.answer}`));
-    parts.push(docxParagraph(`풀이 과정: ${item.solution}`));
-  });
-
-  parts.push(docxParagraph("논술형 평가 문항", { heading: true }));
-  if (content.essayMarkdown) {
-    content.essayMarkdown.split("\n").forEach((line) => {
-      const trimmed = line.trim();
-      if (!trimmed) return;
-      if (/^#{1,3}\s+/.test(trimmed)) parts.push(docxParagraph(trimmed.replace(/^#{1,3}\s+/, ""), { bold: true, size: 26 }));
-      else parts.push(docxParagraph(trimmed.replace(/\*\*/g, "")));
-    });
-  } else {
-    (content.essayQuestions || []).forEach((item, index) => {
-      parts.push(docxParagraph(`${index + 1}. ${item.title || item.question}`, { bold: true, size: 26 }));
-      if (item.scenario) parts.push(docxParagraph(`상황: ${item.scenario}`));
-      (item.passages || []).forEach((passage) => parts.push(docxParagraph(`${passage.label} ${passage.text}`)));
-      (item.subQuestions || []).forEach((subQuestion) => {
-        parts.push(docxParagraph(`${subQuestion.number} ${subQuestion.question}`, { bold: true }));
-        parts.push(docxParagraph(`모범 답안: ${subQuestion.answer}`));
-      });
-      if (!item.subQuestions?.length) parts.push(docxParagraph(`모범 답안: ${item.modelAnswer}`));
-    });
-
-    parts.push(docxParagraph("논술형 채점 루브릭", { heading: true }));
-    const rubric = content.rubric && typeof content.rubric === "object" && !Array.isArray(content.rubric)
-      ? content.rubric as {
-        assessmentAreaName?: string;
-        totalScore?: number;
-        essayRubrics?: Array<{
-          essayQuestionIndex?: number;
-          essayQuestionTitle?: string;
-          rows?: Array<{ criterion?: string; maxScore?: number; high?: string; middle?: string; low?: string }>;
-        }>;
-      }
-      : {};
-    parts.push(docxParagraph(`평가 영역명: ${rubric.assessmentAreaName || ""}`));
-    parts.push(docxParagraph(`영역 만점: ${rubric.totalScore || ""}점`));
-    (rubric.essayRubrics || []).forEach((essayRubric) => {
-      parts.push(docxParagraph(`논술형 문항 ${essayRubric.essayQuestionIndex || ""} ${essayRubric.essayQuestionTitle || ""}`, { bold: true }));
-      parts.push(docxTable([
-        ["평가요소", "배점", "상", "중", "하"],
-        ...(essayRubric.rows || []).map((row) => [
-          row.criterion || "",
-          `${row.maxScore || ""}점`,
-          row.high || "",
-          row.middle || "",
-          row.low || ""
-        ])
-      ]));
+  if (sel.check) {
+    parts.push(docxParagraph("확인 퀴즈", { heading: true }));
+    (content.checkQuizzes || []).forEach((item, index) => {
+      parts.push(docxParagraph(`${index + 1}. ${item.question}`, { bold: true }));
+      parts.push(docxParagraph(`난이도: ${item.difficulty} / 유형: ${item.type}`));
+      if (item.choices?.length) parts.push(docxParagraph(`선택지: ${item.choices.join(" / ")}`));
+      parts.push(docxParagraph(`정답: ${item.answer}`));
+      if (item.explanation) parts.push(docxParagraph(`해설: ${item.explanation}`));
     });
   }
 
-  parts.push(docxParagraph("게임 활동", { heading: true }));
-  (content.gameActivities || []).forEach((item, index) => {
-    parts.push(docxParagraph(`${index + 1}. ${item.title}`, { bold: true }));
-    parts.push(docxParagraph(`시간: ${item.duration}`));
-    if (item.target) parts.push(docxParagraph(`목표: ${item.target}`));
-    parts.push(docxParagraph(`준비물: ${item.materials}`));
-    parts.push(docxParagraph("진행 방법", { bold: true }));
-    if (Array.isArray(item.procedure)) item.procedure.forEach((step) => parts.push(docxBullet(step)));
-    else parts.push(docxParagraph(item.procedure));
-    parts.push(docxParagraph("변형 방법", { bold: true }));
-    if (Array.isArray(item.variation)) item.variation.forEach((variation) => parts.push(docxBullet(variation)));
-    else parts.push(docxParagraph(item.variation));
-    if (item.teacherGuide) parts.push(docxParagraph(`교사용 안내: ${item.teacherGuide}`));
-    parts.push(docxParagraph("AI 붙여넣기용 프롬프트", { bold: true }));
-    parts.push(docxParagraph(item.aiPrompt));
-  });
+  if (sel.exam) {
+    parts.push(docxParagraph("시험대비문항", { heading: true }));
+    (content.examQuestions || []).forEach((item, index) => {
+      parts.push(docxParagraph(`${index + 1}. ${item.question}`, { bold: true }));
+      if (item.difficulty) parts.push(docxParagraph(`난이도: ${item.difficulty}`));
+      if (item.choices?.length) item.choices.forEach((choice, ci) => parts.push(docxParagraph(choiceLabel(choice, ci))));
+      parts.push(docxParagraph(`정답: ${item.answer}`));
+      parts.push(docxParagraph(`풀이 과정: ${item.solution}`));
+    });
+  }
 
-  parts.push(docxParagraph("교사용 활용 팁", { heading: true }));
-  parts.push(docxParagraph(`도입: ${content.teacherTips?.intro || ""}`));
-  parts.push(docxParagraph(`전개: ${content.teacherTips?.development || ""}`));
-  parts.push(docxParagraph(`정리: ${content.teacherTips?.wrapUp || ""}`));
+  if (sel.essay) {
+    parts.push(docxParagraph("논술형 평가 문항", { heading: true }));
+    if (content.essayMarkdown) {
+      content.essayMarkdown.split("\n").forEach((line) => {
+        const trimmed = line.trim();
+        if (!trimmed) return;
+        if (/^#{1,3}\s+/.test(trimmed)) parts.push(docxParagraph(trimmed.replace(/^#{1,3}\s+/, ""), { bold: true, size: 26 }));
+        else parts.push(docxParagraph(trimmed.replace(/\*\*/g, "")));
+      });
+    } else {
+      (content.essayQuestions || []).forEach((item, index) => {
+        parts.push(docxParagraph(`${index + 1}. ${item.title || item.question}`, { bold: true, size: 26 }));
+        if (item.scenario) parts.push(docxParagraph(`상황: ${item.scenario}`));
+        (item.passages || []).forEach((passage) => parts.push(docxParagraph(`${passage.label} ${passage.text}`)));
+        (item.subQuestions || []).forEach((subQuestion) => {
+          parts.push(docxParagraph(`${subQuestion.number} ${subQuestion.question}`, { bold: true }));
+          parts.push(docxParagraph(`모범 답안: ${subQuestion.answer}`));
+        });
+        if (!item.subQuestions?.length) parts.push(docxParagraph(`모범 답안: ${item.modelAnswer}`));
+      });
 
-  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+      parts.push(docxParagraph("논술형 채점 루브릭", { heading: true }));
+      const rubric = content.rubric && typeof content.rubric === "object" && !Array.isArray(content.rubric)
+        ? content.rubric as {
+          assessmentAreaName?: string;
+          totalScore?: number;
+          essayRubrics?: Array<{
+            essayQuestionIndex?: number;
+            essayQuestionTitle?: string;
+            rows?: Array<{ criterion?: string; maxScore?: number; high?: string; middle?: string; low?: string }>;
+          }>;
+        }
+        : {};
+      parts.push(docxParagraph(`평가 영역명: ${rubric.assessmentAreaName || ""}`));
+      parts.push(docxParagraph(`영역 만점: ${rubric.totalScore || ""}점`));
+      (rubric.essayRubrics || []).forEach((essayRubric) => {
+        parts.push(docxParagraph(`논술형 문항 ${essayRubric.essayQuestionIndex || ""} ${essayRubric.essayQuestionTitle || ""}`, { bold: true }));
+        parts.push(docxTable([
+          ["평가요소", "배점", "상", "중", "하"],
+          ...(essayRubric.rows || []).map((row) => [
+            row.criterion || "",
+            `${row.maxScore || ""}점`,
+            row.high || "",
+            row.middle || "",
+            row.low || ""
+          ])
+        ]));
+      });
+    }
+  }
+
+  if (sel.game) {
+    parts.push(docxParagraph("게임 활동", { heading: true }));
+    (content.gameActivities || []).forEach((item, index) => {
+      parts.push(docxParagraph(`${index + 1}. ${item.title}`, { bold: true }));
+      parts.push(docxParagraph(`시간: ${item.duration}`));
+      if (item.target) parts.push(docxParagraph(`목표: ${item.target}`));
+      parts.push(docxParagraph(`준비물: ${item.materials}`));
+      parts.push(docxParagraph("진행 방법", { bold: true }));
+      if (Array.isArray(item.procedure)) item.procedure.forEach((step) => parts.push(docxBullet(step)));
+      else parts.push(docxParagraph(item.procedure));
+      parts.push(docxParagraph("변형 방법", { bold: true }));
+      if (Array.isArray(item.variation)) item.variation.forEach((variation) => parts.push(docxBullet(variation)));
+      else parts.push(docxParagraph(item.variation));
+      if (item.teacherGuide) parts.push(docxParagraph(`교사용 안내: ${item.teacherGuide}`));
+      parts.push(docxParagraph("AI 붙여넣기용 프롬프트", { bold: true }));
+      parts.push(docxParagraph(item.aiPrompt));
+    });
+  }
+
+  if (sel.tips) {
+    parts.push(docxParagraph("교사용 활용 팁", { heading: true }));
+    parts.push(docxParagraph(`도입: ${content.teacherTips?.intro || ""}`));
+    parts.push(docxParagraph(`전개: ${content.teacherTips?.development || ""}`));
+    parts.push(docxParagraph(`정리: ${content.teacherTips?.wrapUp || ""}`));
+  }
+
+  const xml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
     <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
       <w:body>
         ${parts.join("")}
@@ -310,6 +363,8 @@ function contentToDocxDocumentXml(content: GeneratedContent) {
         </w:sectPr>
       </w:body>
     </w:document>`;
+  // 워드에는 MathJax가 없으므로 LaTeX를 유니코드로 변환해 깨짐을 막는다.
+  return mathToUnicode(xml);
 }
 
 function crc32(bytes: Uint8Array) {
@@ -376,8 +431,8 @@ function createZip(files: Record<string, string>) {
   return concatArrays([...localParts, central, end]);
 }
 
-function createDocxBlob(content: GeneratedContent) {
-  const documentXml = contentToDocxDocumentXml(content);
+function createDocxBlob(content: GeneratedContent, sel: SectionSel = ALL_SECTIONS, meta: ExportMeta = {}) {
+  const documentXml = contentToDocxDocumentXml(content, sel, meta);
   const files = {
     "[Content_Types].xml": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
       <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
@@ -409,72 +464,99 @@ async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<T
   return data as T;
 }
 
-function contentToText(content: GeneratedContent) {
+// 내보내기/인쇄 시 포함할 선택 항목. 고정 항목(성취기준·단원명·개념요약)은 항상 포함된다.
+type SectionSel = { check: boolean; exam: boolean; essay: boolean; game: boolean; tips: boolean };
+const ALL_SECTIONS: SectionSel = { check: true, exam: true, essay: true, game: true, tips: true };
+type ExportMeta = { gradeName?: string; publisherName?: string; unitTitle?: string; subunitTitle?: string };
+
+function unitHeaderText(meta: ExportMeta) {
+  const parts = [meta.gradeName, meta.publisherName, meta.unitTitle].filter(Boolean).join(" · ");
+  return { title: meta.subunitTitle || "수학 수업자료", sub: parts };
+}
+
+function contentToText(content: GeneratedContent, sel: SectionSel = ALL_SECTIONS, meta: ExportMeta = {}) {
   const lines: string[] = [];
-  lines.push("[과목별 단원별 성취기준]");
+  const head = unitHeaderText(meta);
+  lines.push(`# ${head.title}`);
+  if (head.sub) lines.push(head.sub);
+
+  lines.push("", "[과목별 단원별 성취기준]");
   (content.achievementStandards || []).forEach((item) => {
     lines.push(`- ${item.code} (${item.relation}): ${item.description}`);
   });
 
-  lines.push("", "[개념 요약]");
-  (content.summary || []).forEach((item) => lines.push(`- ${formatMathText(item)}`));
+  if (content.summary?.length) {
+    lines.push("", "[개념 요약]");
+    content.summary.forEach((item) => lines.push(`- ${formatMathText(item)}`));
+  }
 
-  lines.push("", "[확인 퀴즈]");
-  (content.checkQuizzes || []).forEach((item, index) => {
-    lines.push(`${index + 1}. ${formatMathText(item.question)}`);
-    lines.push(`난이도: ${item.difficulty}`);
-    lines.push(`유형: ${item.type}`);
-    if (item.choices?.length) lines.push(`선택지: ${item.choices.map(formatMathText).join(" / ")}`);
-    lines.push(`정답: ${formatMathText(item.answer)}`);
-    if (item.explanation) lines.push(`해설: ${formatMathText(item.explanation)}`);
-  });
-
-  lines.push("", "[시험대비문항]");
-  (content.examQuestions || []).forEach((item, index) => {
-    lines.push(`${index + 1}. ${formatMathText(item.question)}`);
-    if (item.difficulty) lines.push(`난이도: ${item.difficulty}`);
-    if (item.choices?.length) item.choices.forEach((choice, ci) => lines.push(choiceLabel(choice, ci)));
-    lines.push(`정답: ${formatMathText(item.answer)}`);
-    lines.push(`풀이 과정: ${formatMathText(item.solution)}`);
-  });
-
-  lines.push("", "[논술형 평가 문항]");
-  if (content.essayMarkdown) {
-    lines.push(content.essayMarkdown);
-  } else {
-    (content.essayQuestions || []).forEach((item, index) => {
-      lines.push(`${index + 1}. ${formatMathText(item.title || item.question)}`);
-      if (item.scenario) lines.push(`상황: ${formatMathText(item.scenario)}`);
-      (item.passages || []).forEach((passage) => lines.push(`${passage.label} ${formatMathText(passage.text)}`));
-      (item.subQuestions || []).forEach((subQuestion) => {
-        lines.push(`${subQuestion.number} ${formatMathText(subQuestion.question)}`);
-        lines.push(`모범 답안: ${formatMathText(subQuestion.answer)}`);
-      });
-      if (!item.subQuestions?.length) lines.push(`모범 답안: ${formatMathText(item.modelAnswer)}`);
+  if (sel.check) {
+    lines.push("", "[확인 퀴즈]");
+    (content.checkQuizzes || []).forEach((item, index) => {
+      lines.push(`${index + 1}. ${formatMathText(item.question)}`);
+      lines.push(`난이도: ${item.difficulty}`);
+      lines.push(`유형: ${item.type}`);
+      if (item.choices?.length) lines.push(`선택지: ${item.choices.map(formatMathText).join(" / ")}`);
+      lines.push(`정답: ${formatMathText(item.answer)}`);
+      if (item.explanation) lines.push(`해설: ${formatMathText(item.explanation)}`);
     });
   }
 
-  lines.push("", "[게임 활동]");
-  (content.gameActivities || []).forEach((item, index) => {
-    lines.push(`${index + 1}. ${formatMathText(item.title)}`);
-    lines.push(`시간: ${item.duration}`);
-    if (item.target) lines.push(`목표: ${formatMathText(item.target)}`);
-    lines.push(`준비물: ${formatMathText(item.materials)}`);
-    lines.push(`진행 방법: ${formatMathText(Array.isArray(item.procedure) ? item.procedure.join(" / ") : item.procedure)}`);
-    lines.push(`변형 방법: ${formatMathText(Array.isArray(item.variation) ? item.variation.join(" / ") : item.variation)}`);
-    if (item.teacherGuide) lines.push(`교사용 안내: ${formatMathText(item.teacherGuide)}`);
-    lines.push(`AI 붙여넣기용 프롬프트: ${formatMathText(item.aiPrompt)}`);
-  });
+  if (sel.exam) {
+    lines.push("", "[시험대비문항]");
+    (content.examQuestions || []).forEach((item, index) => {
+      lines.push(`${index + 1}. ${formatMathText(item.question)}`);
+      if (item.difficulty) lines.push(`난이도: ${item.difficulty}`);
+      if (item.choices?.length) item.choices.forEach((choice, ci) => lines.push(choiceLabel(choice, ci)));
+      lines.push(`정답: ${formatMathText(item.answer)}`);
+      lines.push(`풀이 과정: ${formatMathText(item.solution)}`);
+    });
+  }
 
-  lines.push("", "[교사용 활용 팁]");
-  lines.push(`도입: ${content.teacherTips?.intro || ""}`);
-  lines.push(`전개: ${content.teacherTips?.development || ""}`);
-  lines.push(`정리: ${content.teacherTips?.wrapUp || ""}`);
+  if (sel.essay) {
+    lines.push("", "[논술형 평가 문항]");
+    if (content.essayMarkdown) {
+      lines.push(content.essayMarkdown);
+    } else {
+      (content.essayQuestions || []).forEach((item, index) => {
+        lines.push(`${index + 1}. ${formatMathText(item.title || item.question)}`);
+        if (item.scenario) lines.push(`상황: ${formatMathText(item.scenario)}`);
+        (item.passages || []).forEach((passage) => lines.push(`${passage.label} ${formatMathText(passage.text)}`));
+        (item.subQuestions || []).forEach((subQuestion) => {
+          lines.push(`${subQuestion.number} ${formatMathText(subQuestion.question)}`);
+          lines.push(`모범 답안: ${formatMathText(subQuestion.answer)}`);
+        });
+        if (!item.subQuestions?.length) lines.push(`모범 답안: ${formatMathText(item.modelAnswer)}`);
+      });
+    }
+  }
 
-  return lines.join("\n");
+  if (sel.game) {
+    lines.push("", "[게임 활동]");
+    (content.gameActivities || []).forEach((item, index) => {
+      lines.push(`${index + 1}. ${formatMathText(item.title)}`);
+      lines.push(`시간: ${item.duration}`);
+      if (item.target) lines.push(`목표: ${formatMathText(item.target)}`);
+      lines.push(`준비물: ${formatMathText(item.materials)}`);
+      lines.push(`진행 방법: ${formatMathText(Array.isArray(item.procedure) ? item.procedure.join(" / ") : item.procedure)}`);
+      lines.push(`변형 방법: ${formatMathText(Array.isArray(item.variation) ? item.variation.join(" / ") : item.variation)}`);
+      if (item.teacherGuide) lines.push(`교사용 안내: ${formatMathText(item.teacherGuide)}`);
+      lines.push(`AI 붙여넣기용 프롬프트: ${formatMathText(item.aiPrompt)}`);
+    });
+  }
+
+  if (sel.tips) {
+    lines.push("", "[교사용 활용 팁]");
+    lines.push(`도입: ${content.teacherTips?.intro || ""}`);
+    lines.push(`전개: ${content.teacherTips?.development || ""}`);
+    lines.push(`정리: ${content.teacherTips?.wrapUp || ""}`);
+  }
+
+  return mathToUnicode(lines.join("\n"));
 }
 
-function contentToWordHtml(content: GeneratedContent) {
+function contentToWordHtml(content: GeneratedContent, sel: SectionSel = ALL_SECTIONS, meta: ExportMeta = {}, opts: { includeMathJax?: boolean } = {}) {
+  const head = unitHeaderText(meta);
   const essayHtml = (content.essayQuestions || []).map((item, index) => `
     <h2>논술형 예시 문항 ${index + 1}. ${escapeHtml(item.title || item.question)}</h2>
     ${item.scenario ? `<p><strong>상황</strong>: ${escapeHtml(item.scenario)}</p>` : ""}
@@ -518,7 +600,7 @@ function contentToWordHtml(content: GeneratedContent) {
     </table>
   `).join("");
 
-  return `
+  const html = `
     <!doctype html>
     <html>
       <head>
@@ -536,17 +618,18 @@ function contentToWordHtml(content: GeneratedContent) {
           .box { border: 1px solid #d1d5db; padding: 10px; margin: 8px 0; }
           pre { white-space: pre-wrap; font-family: "Malgun Gothic", "맑은 고딕", Arial, sans-serif; background: #f3f4f6; padding: 10px; }
         </style>
+        ${opts.includeMathJax ? `<script>window.MathJax={tex:{inlineMath:[['$','$']],displayMath:[['$$','$$'],['\\\\[','\\\\]']]},svg:{fontCache:'global'}};</script><script async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>` : ""}
       </head>
       <body>
-        <h1>수학교과 통합 웹앱 생성 자료</h1>
+        <h1>${escapeHtml(head.title)}</h1>
+        ${head.sub ? `<p style="color:#555;margin-top:-6px">${escapeHtml(head.sub)}</p>` : ""}
 
         <h2>과목별 단원별 성취기준</h2>
         ${(content.achievementStandards || []).map((item) => `<p><strong>${escapeHtml(item.code)}</strong> ${escapeHtml(item.description)} (${escapeHtml(item.relation)})</p>`).join("")}
 
-        <h2>개념 요약</h2>
-        <ul>${listItems(content.summary || [])}</ul>
+        ${content.summary?.length ? `<h2>개념 요약</h2><ul>${listItems(content.summary)}</ul>` : ""}
 
-        <h2>확인 퀴즈</h2>
+        ${sel.check ? `<h2>확인 퀴즈</h2>
         ${(content.checkQuizzes || []).map((item, index) => `
           <div class="box">
             <p><strong>${index + 1}. ${escapeHtml(item.question)}</strong></p>
@@ -555,9 +638,9 @@ function contentToWordHtml(content: GeneratedContent) {
             <p>정답: ${escapeHtml(item.answer)}</p>
             ${item.explanation ? `<p>해설: ${escapeHtml(item.explanation)}</p>` : ""}
           </div>
-        `).join("")}
+        `).join("")}` : ""}
 
-        <h2>시험대비문항</h2>
+        ${sel.exam ? `<h2>시험대비문항</h2>
         ${(content.examQuestions || []).map((item, index) => `
           <div class="box">
             <p><strong>${index + 1}. ${escapeHtml(item.question)}</strong></p>
@@ -566,18 +649,18 @@ function contentToWordHtml(content: GeneratedContent) {
             <p>정답: ${escapeHtml(item.answer)}</p>
             <p>풀이 과정: ${escapeHtml(item.solution)}</p>
           </div>
-        `).join("")}
+        `).join("")}` : ""}
 
-        <h2>논술형 평가 문항</h2>
+        ${sel.essay ? `<h2>논술형 평가 문항</h2>
         ${content.essayMarkdown
           ? `<div class="markdown-body">${renderMarkdownToHtml(content.essayMarkdown)}</div>`
           : `${essayHtml}
-        <h2>논술형 채점 루브릭</h2>
+        <h3>논술형 채점 루브릭</h3>
         <p><strong>평가 영역명</strong>: ${escapeHtml(rubric.assessmentAreaName || "")}</p>
         <p><strong>영역 만점</strong>: ${escapeHtml(rubric.totalScore || "")}점</p>
-        ${rubricHtml}`}
+        ${rubricHtml}`}` : ""}
 
-        <h2>게임 활동</h2>
+        ${sel.game ? `<h2>게임 활동</h2>
         ${(content.gameActivities || []).map((item, index) => `
           <div class="box">
             <h3>${index + 1}. ${escapeHtml(item.title)}</h3>
@@ -592,15 +675,17 @@ function contentToWordHtml(content: GeneratedContent) {
             <p><strong>AI 붙여넣기용 프롬프트</strong></p>
             <pre>${escapeHtml(item.aiPrompt)}</pre>
           </div>
-        `).join("")}
+        `).join("")}` : ""}
 
-        <h2>교사용 활용 팁</h2>
+        ${sel.tips ? `<h2>교사용 활용 팁</h2>
         <p><strong>도입</strong>: ${escapeHtml(content.teacherTips?.intro || "")}</p>
         <p><strong>전개</strong>: ${escapeHtml(content.teacherTips?.development || "")}</p>
-        <p><strong>정리</strong>: ${escapeHtml(content.teacherTips?.wrapUp || "")}</p>
+        <p><strong>정리</strong>: ${escapeHtml(content.teacherTips?.wrapUp || "")}</p>` : ""}
       </body>
     </html>
   `;
+  // 인쇄(MathJax 포함)는 LaTeX 유지, 워드/한글용 복사는 유니코드로 변환.
+  return opts.includeMathJax ? html : mathToUnicode(html);
 }
 
 function RubricView({ rubric }: { rubric: unknown }) {
@@ -702,11 +787,13 @@ function RubricView({ rubric }: { rubric: unknown }) {
 function GeneratedContentView({
   content,
   focusedGenerating,
-  onGenerateSection
+  onGenerateSection,
+  readOnly = false
 }: {
   content: GeneratedContent;
   focusedGenerating: "" | "exam" | "essay" | "game" | "all";
   onGenerateSection: (section: "exam" | "essay" | "game") => void;
+  readOnly?: boolean;
 }) {
   const hasAnyContent = Boolean(
     content.achievementStandards?.length ||
@@ -766,11 +853,13 @@ function GeneratedContentView({
         <div className="section-heading">
           <div>
             <h3>시험대비문항</h3>
-            <p className="muted">학교 시험형 문항만 깊게 새로 개발할 수 있습니다.</p>
+            {!readOnly ? <p className="muted">학교 시험형 문항만 깊게 새로 개발할 수 있습니다.</p> : null}
           </div>
-          <button className="secondary-button" type="button" onClick={() => onGenerateSection("exam")} disabled={focusedGenerating !== ""}>
-            {focusedGenerating === "exam" ? "생성중..." : "시험대비문항 새로 개발"}
-          </button>
+          {!readOnly ? (
+            <button className="secondary-button" type="button" onClick={() => onGenerateSection("exam")} disabled={focusedGenerating !== ""}>
+              {focusedGenerating === "exam" ? "생성중..." : "시험대비문항 새로 개발"}
+            </button>
+          ) : null}
         </div>
         {(content.examQuestions || []).map((item, index) => (
           <div className="question-card" key={`${item.question}-${index}`}>
@@ -791,11 +880,13 @@ function GeneratedContentView({
         <div className="section-heading">
           <div>
             <h3>논술형 평가 문항</h3>
-            <p className="muted">실전 평가문항지(상황·제시문·소문항·모범답안·채점기준표)를 새로 개발합니다.</p>
+            {!readOnly ? <p className="muted">실전 평가문항지(상황·제시문·소문항·모범답안·채점기준표)를 새로 개발합니다.</p> : null}
           </div>
-          <button className="secondary-button" type="button" onClick={() => onGenerateSection("essay")} disabled={focusedGenerating !== ""}>
-            {focusedGenerating === "essay" ? "생성중..." : "고품질 논술형 새로 개발"}
-          </button>
+          {!readOnly ? (
+            <button className="secondary-button" type="button" onClick={() => onGenerateSection("essay")} disabled={focusedGenerating !== ""}>
+              {focusedGenerating === "essay" ? "생성중..." : "고품질 논술형 새로 개발"}
+            </button>
+          ) : null}
         </div>
         {content.essayMarkdown ? (
           <div
@@ -843,11 +934,13 @@ function GeneratedContentView({
         <div className="section-heading">
           <div>
             <h3>게임 활동</h3>
-            <p className="muted">수업 활동과 바이브코딩용 한글 프롬프트를 새로 개발합니다.</p>
+            {!readOnly ? <p className="muted">수업 활동과 바이브코딩용 한글 프롬프트를 새로 개발합니다.</p> : null}
           </div>
-          <button className="secondary-button" type="button" onClick={() => onGenerateSection("game")} disabled={focusedGenerating !== ""}>
-            {focusedGenerating === "game" ? "생성중..." : "수업 게임활동 새로 개발"}
-          </button>
+          {!readOnly ? (
+            <button className="secondary-button" type="button" onClick={() => onGenerateSection("game")} disabled={focusedGenerating !== ""}>
+              {focusedGenerating === "game" ? "생성중..." : "수업 게임활동 새로 개발"}
+            </button>
+          ) : null}
         </div>
         {(content.gameActivities || []).map((item, index) => (
           <div className="question-card" key={`${item.title}-${index}`}>
@@ -884,6 +977,41 @@ function GeneratedContentView({
         <p><strong>전개</strong>: <Text>{content.teacherTips?.development}</Text></p>
         <p><strong>정리</strong>: <Text>{content.teacherTips?.wrapUp}</Text></p>
       </section>
+    </div>
+  );
+}
+
+// 기존 문항 분석 전용 뷰: 소단원 구조(개념요약/게임/팁 등) 없이 '파악한 성취기준 + 유사 문항'만 표시.
+function ReferenceResultView({ content }: { content: GeneratedContent }) {
+  const problems = content.examQuestions || [];
+  return (
+    <div className="stack-sm">
+      {content.achievementStandards?.length ? (
+        <div className="question-card">
+          <strong>파악한 성취기준</strong>
+          {content.achievementStandards.map((item) => (
+            <p key={`${item.code}-${item.description}`}><strong>{item.code}</strong> <Text>{item.description}</Text></p>
+          ))}
+        </div>
+      ) : null}
+
+      {problems.length === 0 ? (
+        <p className="notice notice-error">생성된 유사 문항이 없습니다. 다시 시도해 주세요.</p>
+      ) : (
+        problems.map((item, index) => (
+          <div className="question-card" key={`${item.question}-${index}`}>
+            <strong>{index + 1}. <Text>{item.question}</Text></strong>
+            {item.difficulty ? <span className="badge" style={{ marginLeft: 8 }}>{item.difficulty}</span> : null}
+            {item.choices?.length ? (
+              <div className="choice-list" style={{ margin: "6px 0" }}>
+                {item.choices.map((choice, ci) => <p key={ci} style={{ margin: "2px 0" }}>{choiceLabel(choice, ci)}</p>)}
+              </div>
+            ) : null}
+            <p>정답: <Text>{item.answer}</Text></p>
+            {item.solution ? <p>풀이: <Text>{item.solution}</Text></p> : null}
+          </div>
+        ))
+      )}
     </div>
   );
 }
@@ -927,14 +1055,15 @@ export function TeacherDashboard() {
   const [subunitId, setSubunitId] = useState("");
   const [result, setResult] = useState<RenderedResult | null>(null);
   const [focusedGenerating, setFocusedGenerating] = useState<"" | "exam" | "essay" | "game" | "all">("");
-  const [targetLevel, setTargetLevel] = useState<"A" | "B" | "C" | "D" | "E">("C");
-  const [leveledNote, setLeveledNote] = useState("");
-  const [leveledGenerating, setLeveledGenerating] = useState(false);
+  const [targetLevel, setTargetLevel] = useState<"" | "A" | "B" | "C" | "D" | "E">("");
+  const [referenceResult, setReferenceResult] = useState<GeneratedContent | null>(null);
   const [referenceText, setReferenceText] = useState("");
   const [referenceImage, setReferenceImage] = useState<string | null>(null);
   const [referenceGenerating, setReferenceGenerating] = useState(false);
   const referenceFileRef = useRef<HTMLInputElement>(null);
   const resultRef = useRef<HTMLDivElement>(null);
+  // 내보내기/인쇄/복사 시 포함할 선택 항목(고정 항목 제외). 기본 전체 선택.
+  const [exportSel, setExportSel] = useState<SectionSel>({ check: true, exam: true, essay: true, game: true, tips: true });
 
   async function refresh() {
     const nextData = await apiRequest<BootstrapData>("/api/bootstrap");
@@ -945,25 +1074,19 @@ export function TeacherDashboard() {
     refresh().catch((error) => setNotice({ tone: "error", message: error.message }));
   }, []);
 
-  // 생성 결과의 LaTeX 수식($...$)을 MathJax로 조판한다.
+  // 생성 결과(소단원 자료 + 기존 문항 분석)의 LaTeX 수식($...$)을 MathJax로 조판한다.
   useEffect(() => {
-    if (!result) return;
+    if (!result && !referenceResult) return;
     const w = window as unknown as {
-      MathJax?: { typesetPromise?: (els?: unknown[]) => Promise<void>; typesetClear?: (els?: unknown[]) => void };
+      MathJax?: {
+        typesetPromise?: (els?: unknown[]) => Promise<void>;
+        typesetClear?: (els?: unknown[]) => void;
+        startup?: { promise?: Promise<void> };
+      };
     };
-    const typeset = () => {
-      if (!w.MathJax?.typesetPromise || !resultRef.current) return;
-      try {
-        w.MathJax.typesetClear?.([resultRef.current]);
-        w.MathJax.typesetPromise([resultRef.current]).catch(() => {});
-      } catch {
-        /* noop */
-      }
-    };
-    if (w.MathJax?.typesetPromise) {
-      const id = window.setTimeout(typeset, 0);
-      return () => window.clearTimeout(id);
-    }
+    let cancelled = false;
+
+    // 스크립트는 한 번만 추가한다. (MathJax v3는 로드 후 비동기로 초기화됨)
     if (!document.getElementById("mathjax-cdn")) {
       (w as unknown as { MathJax: unknown }).MathJax = {
         tex: { inlineMath: [["$", "$"]], displayMath: [["$$", "$$"], ["\\[", "\\]"]] },
@@ -974,22 +1097,39 @@ export function TeacherDashboard() {
       script.id = "mathjax-cdn";
       script.src = "https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js";
       script.async = true;
-      script.onload = typeset;
       document.head.appendChild(script);
-      return;
     }
-    const poll = window.setInterval(() => {
-      if (w.MathJax?.typesetPromise) {
-        window.clearInterval(poll);
-        typeset();
+
+    const doTypeset = () => {
+      if (cancelled || !w.MathJax?.typesetPromise) return;
+      try {
+        w.MathJax.typesetClear?.();
+        w.MathJax.typesetPromise().catch(() => {});
+      } catch {
+        /* noop */
       }
-    }, 200);
-    const stop = window.setTimeout(() => window.clearInterval(poll), 6000);
-    return () => {
-      window.clearInterval(poll);
-      window.clearTimeout(stop);
     };
-  }, [result]);
+
+    // MathJax 초기화 완료를 기다린 뒤 조판. startup.promise가 아직 없으면 짧게 폴링.
+    const run = () => {
+      if (cancelled) return;
+      const mj = w.MathJax;
+      if (mj?.startup?.promise) {
+        mj.startup.promise.then(doTypeset).catch(() => {});
+      } else if (mj?.typesetPromise) {
+        doTypeset();
+      } else {
+        window.setTimeout(run, 200);
+      }
+    };
+
+    // 다단계 생성으로 result가 연달아 바뀔 때 마지막 상태에서 한 번만 조판되도록 디바운스.
+    const id = window.setTimeout(run, 350);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(id);
+    };
+  }, [result, referenceResult]);
 
   const publishers = useMemo(() => {
     if (!data || !gradeId) return [];
@@ -1010,28 +1150,52 @@ export function TeacherDashboard() {
     return data.subunits.filter((subunit) => subunit.unitId === unitId);
   }, [data, unitId]);
 
-  async function generate(force = false) {
+  // 통일된 고품질 생성: 초안 생성 후 시험대비·논술형·게임활동을 전문 프롬프트로 재생성한다.
+  // force=false면 같은 목표수준의 캐시가 있을 때 바로 불러오고, 없으면 전체 생성한다.
+  // force=true면 항상 새 문항으로 다시 생성한다.
+  async function generatePackage(force: boolean) {
     if (!subunitId) {
       setNotice({ tone: "error", message: "소단원을 선택해 주세요." });
       return;
     }
+    const levelLabel = targetLevel ? `수준 ${targetLevel} ` : "";
     try {
-      setNotice({ tone: "normal", message: force ? "기존 결과를 지우고 다시 생성하는 중입니다." : "AI 자료를 불러오거나 생성하는 중입니다." });
-      const response = await apiRequest<{
-        content: GeneratedContent;
-        cached?: boolean;
-      }>("/api/generate", {
+      setFocusedGenerating("all");
+      setNotice({ tone: "normal", message: `${levelLabel}소단원 자료를 생성하는 중입니다. 초안 후 시험대비·논술형·게임활동을 순서대로 개발합니다. (1~2분 소요)` });
+
+      const draft = await apiRequest<{ content: GeneratedContent; cached?: boolean }>("/api/generate", {
         method: "POST",
-        body: JSON.stringify({ subunitId, force })
+        body: JSON.stringify({ subunitId, force, level: targetLevel })
       });
-      setResult({ content: response.content, subunitId });
-      setNotice({
-        tone: "normal",
-        message: response.cached ? "저장된 AI 결과를 불러왔습니다." : "AI 생성 결과를 저장했습니다."
-      });
+
+      // force=false인데 캐시가 있으면 그대로 사용(이미 완성된 고품질 자료).
+      if (!force && draft.cached) {
+        setResult({ content: draft.content, subunitId });
+        setNotice({ tone: "normal", message: `저장된 ${levelLabel}소단원 자료를 불러왔습니다.` });
+        await refresh();
+        return;
+      }
+
+      let nextContent = draft.content;
+      setResult({ content: nextContent, subunitId });
+
+      const sectionNames = { exam: "시험대비문항", essay: "논술형 문항", game: "게임활동" };
+      for (const section of ["exam", "essay", "game"] as const) {
+        setNotice({ tone: "normal", message: `${levelLabel}${sectionNames[section]}을 개발하는 중입니다.` });
+        const response = await apiRequest<{ content: GeneratedContent }>("/api/generate-section", {
+          method: "POST",
+          body: JSON.stringify({ subunitId, section, level: targetLevel })
+        });
+        nextContent = response.content;
+        setResult({ content: nextContent, subunitId });
+      }
+
+      setNotice({ tone: "normal", message: `${levelLabel}소단원 자료를 생성해 저장했습니다.` });
       await refresh();
     } catch (error) {
-      setNotice({ tone: "error", message: error instanceof Error ? error.message : "생성 실패" });
+      setNotice({ tone: "error", message: error instanceof Error ? error.message : "자료 생성 실패" });
+    } finally {
+      setFocusedGenerating("");
     }
   }
 
@@ -1055,7 +1219,7 @@ export function TeacherDashboard() {
         section: string;
       }>("/api/generate-section", {
         method: "POST",
-        body: JSON.stringify({ subunitId, section })
+        body: JSON.stringify({ subunitId, section, level: targetLevel })
       });
       setResult({ content: response.content, subunitId });
       setNotice({ tone: "normal", message: `${sectionNames[section]}을 다시 생성해 저장했습니다.` });
@@ -1064,73 +1228,6 @@ export function TeacherDashboard() {
       setNotice({ tone: "error", message: error instanceof Error ? error.message : "섹션 생성 실패" });
     } finally {
       setFocusedGenerating("");
-    }
-  }
-
-  async function generateFinalPackage() {
-    if (!subunitId) {
-      setNotice({ tone: "error", message: "소단원을 선택해 주세요." });
-      return;
-    }
-
-    try {
-      setFocusedGenerating("all");
-      setNotice({ tone: "normal", message: "최종 고품질 자료를 생성하는 중입니다. 초안 생성 후 시험대비, 논술형, 게임활동을 순서대로 새로 개발합니다." });
-
-      const draft = await apiRequest<{ content: GeneratedContent }>("/api/generate", {
-        method: "POST",
-        body: JSON.stringify({ subunitId, force: true })
-      });
-      let nextContent = draft.content;
-      setResult({ content: nextContent, subunitId });
-
-      for (const section of ["exam", "essay", "game"] as const) {
-        const sectionNames = {
-          exam: "시험대비문항",
-          essay: "논술형 문항과 루브릭",
-          game: "게임활동"
-        };
-        setNotice({ tone: "normal", message: `${sectionNames[section]}을 새로 개발하는 중입니다.` });
-        const response = await apiRequest<{ content: GeneratedContent }>("/api/generate-section", {
-          method: "POST",
-          body: JSON.stringify({ subunitId, section })
-        });
-        nextContent = response.content;
-        setResult({ content: nextContent, subunitId });
-      }
-
-      setNotice({ tone: "normal", message: "최종 고품질 자료를 저장했습니다." });
-      await refresh();
-    } catch (error) {
-      setNotice({ tone: "error", message: error instanceof Error ? error.message : "최종 자료 생성 실패" });
-    } finally {
-      setFocusedGenerating("");
-    }
-  }
-
-  async function generateLeveled() {
-    if (!subunitId) {
-      setNotice({ tone: "error", message: "소단원을 선택해 주세요." });
-      return;
-    }
-    try {
-      setLeveledGenerating(true);
-      setNotice({ tone: "normal", message: `목표 성취수준 ${targetLevel}에 맞춘 문항을 생성하는 중입니다. (이 결과는 저장되지 않습니다.)` });
-      const response = await apiRequest<{ content: GeneratedContent; hasLevelData?: boolean }>("/api/generate-leveled", {
-        method: "POST",
-        body: JSON.stringify({ subunitId, level: targetLevel, note: leveledNote })
-      });
-      setResult({ content: response.content, subunitId });
-      setNotice({
-        tone: "normal",
-        message: response.hasLevelData === false
-          ? `수준 ${targetLevel} 문항을 생성했습니다. (이 성취기준은 성취수준 DB에 없어 성취기준만으로 출제했습니다. 저장되지 않음)`
-          : `수준 ${targetLevel} 문항을 생성했습니다. (일회성 결과 — 저장되지 않으니 필요하면 복사/내보내기 하세요.)`
-      });
-    } catch (error) {
-      setNotice({ tone: "error", message: error instanceof Error ? error.message : "수준별 생성 실패" });
-    } finally {
-      setLeveledGenerating(false);
     }
   }
 
@@ -1155,10 +1252,10 @@ export function TeacherDashboard() {
       setNotice({ tone: "normal", message: "기존 문항을 분석해 성취기준을 파악하고 새 문항을 생성하는 중입니다. (저장되지 않습니다.)" });
       const response = await apiRequest<{ content: GeneratedContent }>("/api/generate-reference", {
         method: "POST",
-        body: JSON.stringify({ referenceText, imageDataUrl: referenceImage, note: leveledNote })
+        body: JSON.stringify({ referenceText, imageDataUrl: referenceImage })
       });
-      setResult({ content: response.content, subunitId: subunitId || "reference" });
-      setNotice({ tone: "normal", message: "기존 문항 분석 결과를 생성했습니다. (일회성 — 필요하면 복사/내보내기 하세요.)" });
+      setReferenceResult(response.content);
+      setNotice({ tone: "normal", message: "기존 문항 분석 결과를 아래에 생성했습니다. (소단원 자료와 별개, 저장 안 됨)" });
     } catch (error) {
       setNotice({ tone: "error", message: error instanceof Error ? error.message : "기존 문항 분석 실패" });
     } finally {
@@ -1166,13 +1263,104 @@ export function TeacherDashboard() {
     }
   }
 
+  // 기존 문항 분석 결과 전용 내보내기(소단원 자료와 별개). 유사 문항(examQuestions)만 담는다.
+  const refMeta: ExportMeta = { subunitTitle: "기존 문항 유사 문항" };
+  const refSel: SectionSel = { check: false, exam: true, essay: false, game: false, tips: false };
+  async function copyReferenceRich() {
+    if (!referenceResult) return;
+    const html = contentToWordHtml(referenceResult, refSel, refMeta);
+    try {
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          "text/html": new Blob([html], { type: "text/html" }),
+          "text/plain": new Blob([contentToText(referenceResult, refSel, refMeta)], { type: "text/plain" })
+        })
+      ]);
+      setNotice({ tone: "normal", message: "기존 문항 분석 결과를 한글용으로 복사했습니다. 한글에 붙여넣기 하세요." });
+    } catch {
+      await navigator.clipboard.writeText(contentToText(referenceResult, refSel, refMeta));
+      setNotice({ tone: "normal", message: "텍스트로 복사했습니다." });
+    }
+  }
+  function exportReferenceWord() {
+    if (!referenceResult) return;
+    const blob = createDocxBlob(referenceResult, refSel, refMeta);
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "기존문항분석.docx";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+    setNotice({ tone: "normal", message: "기존 문항 분석 결과를 워드로 내보냈습니다." });
+  }
+  function printReference() {
+    if (!referenceResult) return;
+    const html = contentToWordHtml(referenceResult, refSel, refMeta, { includeMathJax: true });
+    const win = window.open("", "_blank");
+    if (!win) {
+      setNotice({ tone: "error", message: "팝업이 차단되었습니다. 팝업 허용 후 다시 시도하세요." });
+      return;
+    }
+    win.document.write(html);
+    win.document.close();
+    win.setTimeout(() => win.print(), 1200);
+  }
+
+  // 현재 결과의 단원 메타(학년·출판사·대단원·소단원명)를 구한다. 내보내기 머리말에 사용.
+  function exportMeta(): ExportMeta {
+    const subunit = data?.subunits.find((item) => item.id === result?.subunitId);
+    const unit = data?.units.find((item) => item.id === subunit?.unitId);
+    const grade = data?.grades.find((item) => item.id === unit?.gradeId);
+    const publisher = data?.publishers.find((item) => item.id === unit?.publisherId);
+    return {
+      gradeName: grade?.name,
+      publisherName: publisher?.name,
+      unitTitle: unit?.title,
+      subunitTitle: subunit?.title
+    };
+  }
+
+  const SECTION_LABELS: Array<{ key: keyof SectionSel; label: string }> = [
+    { key: "check", label: "확인 퀴즈" },
+    { key: "exam", label: "시험대비문항" },
+    { key: "essay", label: "논술형 평가 문항" },
+    { key: "game", label: "게임 활동" },
+    { key: "tips", label: "교사용 활용 팁" }
+  ];
+
+  function noSectionSelected() {
+    return !exportSel.check && !exportSel.exam && !exportSel.essay && !exportSel.game && !exportSel.tips;
+  }
+
   async function copyResult() {
     if (!result) {
       setNotice({ tone: "error", message: "복사할 결과가 없습니다." });
       return;
     }
-    await navigator.clipboard.writeText(contentToText(result.content));
-    setNotice({ tone: "normal", message: "결과를 클립보드에 복사했습니다." });
+    await navigator.clipboard.writeText(contentToText(result.content, exportSel, exportMeta()));
+    setNotice({ tone: "normal", message: "선택한 항목을 텍스트로 복사했습니다." });
+  }
+
+  // 한글/구글독스용: 서식이 있는 HTML을 클립보드에 복사 → 한글 문서에 붙여넣으면 표·서식 유지.
+  async function copyRichForHwp() {
+    if (!result) {
+      setNotice({ tone: "error", message: "복사할 결과가 없습니다." });
+      return;
+    }
+    const html = contentToWordHtml(result.content, exportSel, exportMeta());
+    try {
+      const item = new ClipboardItem({
+        "text/html": new Blob([html], { type: "text/html" }),
+        "text/plain": new Blob([contentToText(result.content, exportSel, exportMeta())], { type: "text/plain" })
+      });
+      await navigator.clipboard.write([item]);
+      setNotice({ tone: "normal", message: "한글용으로 복사했습니다. 한글 문서에 붙여넣기(Ctrl+V) 하세요. (수식은 $...$ 텍스트로 들어갑니다)" });
+    } catch {
+      await navigator.clipboard.writeText(contentToText(result.content, exportSel, exportMeta()));
+      setNotice({ tone: "normal", message: "이 브라우저는 서식 복사를 지원하지 않아 텍스트로 복사했습니다." });
+    }
   }
 
   function exportWord() {
@@ -1180,10 +1368,9 @@ export function TeacherDashboard() {
       setNotice({ tone: "error", message: "내보낼 결과가 없습니다." });
       return;
     }
-
-    const selectedSubunit = data?.subunits.find((item) => item.id === result.subunitId);
-    const fileName = `${selectedSubunit?.title || "수학_수업자료"}.docx`;
-    const blob = createDocxBlob(result.content);
+    const meta = exportMeta();
+    const fileName = `${meta.subunitTitle || "수학_수업자료"}.docx`;
+    const blob = createDocxBlob(result.content, exportSel, meta);
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
@@ -1192,7 +1379,25 @@ export function TeacherDashboard() {
     anchor.click();
     anchor.remove();
     URL.revokeObjectURL(url);
-    setNotice({ tone: "normal", message: "DOCX 파일로 내보냈습니다." });
+    setNotice({ tone: "normal", message: "워드(DOCX) 파일로 내보냈습니다. (한글에서도 열립니다)" });
+  }
+
+  // 선택 항목만 새 창에 띄워 MathJax로 수식 조판 후 인쇄.
+  function printSelection() {
+    if (!result) {
+      setNotice({ tone: "error", message: "인쇄할 결과가 없습니다." });
+      return;
+    }
+    const html = contentToWordHtml(result.content, exportSel, exportMeta(), { includeMathJax: true });
+    const win = window.open("", "_blank");
+    if (!win) {
+      setNotice({ tone: "error", message: "팝업이 차단되었습니다. 팝업 허용 후 다시 시도하세요." });
+      return;
+    }
+    win.document.write(html);
+    win.document.close();
+    // MathJax 조판이 끝날 시간을 준 뒤 인쇄.
+    win.setTimeout(() => win.print(), 1200);
   }
 
   return (
@@ -1240,25 +1445,11 @@ export function TeacherDashboard() {
             </select>
           </label>
         </div>
-        <div className="action-row">
-          <button className="primary-button" type="button" onClick={() => generate(false)} disabled={focusedGenerating !== "" || leveledGenerating}>
-            초안 생성
-          </button>
-          <button className="secondary-button" type="button" onClick={generateFinalPackage} disabled={focusedGenerating !== "" || leveledGenerating}>
-            {focusedGenerating === "all" ? "최종 생성중..." : "최종 고품질 자료 생성"}
-          </button>
-          <button className="secondary-button" type="button" onClick={() => generate(true)} disabled={focusedGenerating !== "" || leveledGenerating}>
-            초안 다시 생성
-          </button>
-          <button className="secondary-button" type="button" onClick={exportWord}>워드로 내보내기</button>
-          <button className="secondary-button" type="button" onClick={copyResult}>결과 복사</button>
-          <button className="secondary-button" type="button" onClick={() => window.print()}>인쇄</button>
-        </div>
-
-        <div className="leveled-row" style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid #e5e7eb", display: "flex", flexWrap: "wrap", gap: 10, alignItems: "flex-end" }}>
+        <div style={{ marginTop: 12, display: "flex", flexWrap: "wrap", gap: 10, alignItems: "flex-end" }}>
           <label style={{ display: "flex", flexDirection: "column", fontSize: 13, fontWeight: 700, color: "#475569", gap: 4 }}>
-            수준별 문항 생성 (목표 성취수준)
-            <select value={targetLevel} onChange={(event) => setTargetLevel(event.target.value as "A" | "B" | "C" | "D" | "E")}>
+            목표 성취수준 (확인문제·시험대비·논술형 난이도)
+            <select value={targetLevel} onChange={(event) => setTargetLevel(event.target.value as "" | "A" | "B" | "C" | "D" | "E")}>
+              <option value="">수준 미지정 (혼합 난이도)</option>
               <option value="A">수준 A (상위)</option>
               <option value="B">수준 B</option>
               <option value="C">수준 C (중간)</option>
@@ -1266,17 +1457,15 @@ export function TeacherDashboard() {
               <option value="E">수준 E (기초)</option>
             </select>
           </label>
-          <input
-            type="text"
-            value={leveledNote}
-            onChange={(event) => setLeveledNote(event.target.value)}
-            placeholder="출제자 요청사항(선택): 예) 실생활 배경, 서술형 위주 등"
-            style={{ flex: "1 1 280px", minWidth: 220 }}
-          />
-          <button className="primary-button" type="button" onClick={generateLeveled} disabled={leveledGenerating || focusedGenerating !== ""}>
-            {leveledGenerating ? "수준별 생성중..." : `수준 ${targetLevel} 문항 생성`}
+        </div>
+
+        <div className="action-row" style={{ marginTop: 10 }}>
+          <button className="primary-button" type="button" onClick={() => generatePackage(false)} disabled={focusedGenerating !== ""}>
+            {focusedGenerating === "all" ? "생성중..." : "소단원 자료 생성"}
           </button>
-          <span className="muted" style={{ fontSize: 12 }}>이 결과는 저장되지 않습니다. 필요하면 복사/내보내기 하세요.</span>
+          <button className="secondary-button" type="button" onClick={() => generatePackage(true)} disabled={focusedGenerating !== ""}>
+            소단원 자료 다시 생성
+          </button>
         </div>
 
         <p className={`notice ${notice.tone === "error" ? "notice-error" : ""}`}>{notice.message}</p>
@@ -1321,12 +1510,70 @@ export function TeacherDashboard() {
         ) : null}
 
         <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          <button className="primary-button" type="button" onClick={generateFromReference} disabled={referenceGenerating || leveledGenerating || focusedGenerating !== ""}>
+          <button className="primary-button" type="button" onClick={generateFromReference} disabled={referenceGenerating || focusedGenerating !== ""}>
             {referenceGenerating ? "분석·생성중..." : "기존 문항으로 생성"}
           </button>
-          <span className="muted" style={{ fontSize: 12 }}>위 &lsquo;출제자 요청사항&rsquo; 입력칸의 내용도 함께 반영됩니다.</span>
+          {referenceResult ? (
+            <button className="secondary-button" type="button" onClick={() => setReferenceResult(null)}>결과 지우기</button>
+          ) : null}
+          <span className="muted" style={{ fontSize: 12 }}>소단원 자료와 별개로 아래에 따로 표시됩니다. (저장 안 됨)</span>
         </div>
       </section>
+
+      {referenceResult ? (
+        <section className="panel">
+          <div className="section-heading">
+            <div>
+              <h3>기존 문항 분석 결과</h3>
+              <p className="muted">위 소단원 자료와 별개입니다. 아래 버튼으로 내보내기/복사/인쇄하세요.</p>
+            </div>
+          </div>
+          <div className="action-row" style={{ marginBottom: 10 }}>
+            <button className="secondary-button" type="button" onClick={copyReferenceRich}>한글용 복사</button>
+            <button className="secondary-button" type="button" onClick={exportReferenceWord}>워드(DOCX)로 내보내기</button>
+            <button className="secondary-button" type="button" onClick={printReference}>인쇄</button>
+          </div>
+          <ReferenceResultView content={referenceResult} />
+        </section>
+      ) : null}
+
+      {result ? (
+        <section className="panel">
+          <h3>내보내기 / 인쇄</h3>
+          <p className="muted">성취기준 · 대단원/소단원명 · 개념 요약은 항상 포함됩니다. 아래에서 함께 담을 항목을 고르세요.</p>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 14, alignItems: "center", margin: "10px 0" }}>
+            {SECTION_LABELS.map(({ key, label }) => (
+              <label key={key} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 14, fontWeight: 600 }}>
+                <input
+                  type="checkbox"
+                  checked={exportSel[key]}
+                  onChange={(event) => setExportSel((prev) => ({ ...prev, [key]: event.target.checked }))}
+                />
+                {label}
+              </label>
+            ))}
+            <button
+              type="button"
+              className="secondary-button"
+              style={{ padding: "4px 10px", fontSize: 13 }}
+              onClick={() => {
+                const allOn = exportSel.check && exportSel.exam && exportSel.essay && exportSel.game && exportSel.tips;
+                const next = !allOn;
+                setExportSel({ check: next, exam: next, essay: next, game: next, tips: next });
+              }}
+            >
+              {exportSel.check && exportSel.exam && exportSel.essay && exportSel.game && exportSel.tips ? "전체 해제" : "전체 선택"}
+            </button>
+          </div>
+          <div className="action-row">
+            <button className="secondary-button" type="button" onClick={copyRichForHwp} disabled={noSectionSelected()}>한글용 복사</button>
+            <button className="secondary-button" type="button" onClick={exportWord} disabled={noSectionSelected()}>워드(DOCX)로 내보내기</button>
+            <button className="secondary-button" type="button" onClick={copyResult} disabled={noSectionSelected()}>텍스트 복사</button>
+            <button className="secondary-button" type="button" onClick={printSelection} disabled={noSectionSelected()}>인쇄</button>
+          </div>
+          {noSectionSelected() ? <p className="notice notice-error" style={{ marginTop: 8 }}>한 항목 이상 선택하세요.</p> : null}
+        </section>
+      ) : null}
 
       <div ref={resultRef}>
         {result ? (

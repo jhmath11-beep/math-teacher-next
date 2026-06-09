@@ -11,6 +11,10 @@ export async function POST(request: Request) {
 
     const supabase = createSupabaseAdmin();
 
+    // 목표 성취수준(A~E). "미지정"/빈값이면 수준 무관(혼합 난이도).
+    const levels = ["A", "B", "C", "D", "E"];
+    const requestedLevel = typeof body.level === "string" && levels.includes(body.level) ? body.level : "";
+
     const { data: saved } = await supabase
       .from("math_generated_contents")
       .select("*")
@@ -19,7 +23,8 @@ export async function POST(request: Request) {
 
     if (saved) {
       const cachedContent = normalizeGeneratedContent(saved.content);
-      if (!body.force && hasGeneratedContent(cachedContent)) {
+      // 캐시는 같은 목표 수준일 때만 재사용한다(수준이 다르면 새 난이도로 재생성).
+      if (!body.force && (cachedContent.targetLevel || "") === requestedLevel && hasGeneratedContent(cachedContent)) {
         return NextResponse.json({
           source: saved.source,
           content: cachedContent,
@@ -57,7 +62,8 @@ export async function POST(request: Request) {
     const result = await generateMathContent({
       subunitTitle: subunit.title,
       achievementStandard: subunit.achievement_standard || "",
-      extractedText: textRow.extracted_text
+      extractedText: textRow.extracted_text,
+      targetLevel: requestedLevel as "A" | "B" | "C" | "D" | "E" | ""
     });
 
     const { error: saveError } = await supabase
