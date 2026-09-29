@@ -276,6 +276,7 @@ textarea {
 .question-card {
   border-top: 1px solid var(--line);
   padding: 14px 0;
+  white-space: pre-line; /* 문항 안의 줄바꿈을 그대로 보여준다 */
 }
 
 .question-card:first-child {

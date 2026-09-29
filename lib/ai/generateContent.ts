@@ -51,9 +51,20 @@ function fixEssayMarkdown(md: string): string {
     .split(/(\$[^$]*\$)/)
     .map((segment, index) => {
       if (index % 2 === 1) return segment; // $...$ 수학 구간은 손대지 않음
-      return segment.replace(/\\n/g, "\n").replace(/\\t/g, "  ");
+      // 뒤에 소문자가 오면 $ 없이 쓴 LaTeX 명령어(\neq, \times 등)일 수 있으므로 건드리지 않는다.
+      return segment.replace(/\\n(?![a-z])/g, "\n").replace(/\\t(?![a-z])/g, "  ");
     })
     .join("");
+}
+
+// 문항·해설 등 모든 문자열 필드에 같은 복구를 적용한다(줄바꿈이 화면에 \n 글자 그대로 찍히는 것 방지).
+function fixEscapesDeep(value: unknown): unknown {
+  if (typeof value === "string") return fixEssayMarkdown(value);
+  if (Array.isArray(value)) return value.map(fixEscapesDeep);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, fixEscapesDeep(item)]));
+  }
+  return value;
 }
 
 // 모델이 선택지·정답의 수식을 $...$로 감싸지 않은 경우를 보정한다.
@@ -67,7 +78,7 @@ function ensureMath(value: unknown): string {
 }
 
 export function normalizeGeneratedContent(raw: unknown): GeneratedContent {
-  const data = asRecord(raw);
+  const data = asRecord(fixEscapesDeep(raw));
   const tips = asRecord(pickValue(data, ["teacherTips", "교사용 활용 팁", "교사용활용팁", "활용 팁"]));
 
   return {
