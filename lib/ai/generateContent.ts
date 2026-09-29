@@ -43,16 +43,40 @@ function parseJsonLikeText(text: string) {
   }
 }
 
+// JSON 이스케이프(\t \r \f \b)가 LaTeX 명령어 앞부분을 먹은 경우 되살릴 명령어 목록.
+// 예: \text → 탭+"ext", \rightarrow → CR+"ightarrow", \frac → FF+"rac"
+const EATEN_ESCAPES: Record<string, string> = { "\t": "t", "\r": "r", "\f": "f", "\b": "b" };
+const EATEN_COMMANDS = new Set([
+  "text", "times", "to", "theta", "triangle", "tan", "therefore", "tfrac",
+  "rightarrow", "rho", "right", "rangle",
+  "frac", "forall",
+  "begin", "beta", "bar", "because", "bigcirc", "boxed", "bullet"
+]);
+
 // 모델이 줄바꿈을 \\n(리터럴 백슬래시-n)으로 잘못 이스케이프하는 경우를 복구한다.
 // $...$ 수학 구간은 LaTeX 명령어(\\nu 등)를 깨지 않도록 그대로 보존한다.
-function fixEssayMarkdown(md: string): string {
+export function fixEssayMarkdown(md: string): string {
   if (!md) return "";
-  return md
+  const restored = md.replace(/([\t\r\f\x08])([a-z]+)/g, (match, ch: string, rest: string) => {
+    const command = EATEN_ESCAPES[ch] + rest;
+    return EATEN_COMMANDS.has(command) ? `\\${command}` : match;
+  });
+  // 수식($)이나 한글이 섞인 "글"일 때만 $ 밖 명령어를 감싼다.
+  const isProse = restored.includes("$") || /[가-힣]/.test(restored);
+  return restored
     .split(/(\$[^$]*\$)/)
     .map((segment, index) => {
-      if (index % 2 === 1) return segment; // $...$ 수학 구간은 손대지 않음
+      if (index % 2 === 1) {
+        // 수식 안의 줄바꿈은 문단이 갈라져 $ 짝이 깨지므로 공백으로 바꾼다(줄바꿈이 먹은 \neq 등은 되살린다).
+        return segment
+          .replace(/\n(?=(?:eq|e|eg|abla|otin)(?![a-zA-Z]))/g, "\\n")
+          .replace(/\s*\n\s*/g, " ");
+      }
       // 뒤에 소문자가 오면 $ 없이 쓴 LaTeX 명령어(\neq, \times 등)일 수 있으므로 건드리지 않는다.
-      return segment.replace(/\\n(?![a-z])/g, "\n").replace(/\\t(?![a-z])/g, "  ");
+      const text = segment.replace(/\\n(?![a-z])/g, "\n").replace(/\\t(?![a-z])/g, "  ");
+      // 글 속에서 $ 밖에 홀로 쓴 명령어(\rightarrow 등)는 $로 감싸 조판되게 한다.
+      // ($도 한글도 없는 순수 수식 문자열은 ensureMath가 통째로 감싼다.)
+      return isProse ?text.replace(/\\[a-zA-Z]+(?:\{[^{}$]*\})*/g, "$$$&$$") : text;
     })
     .join("");
 }

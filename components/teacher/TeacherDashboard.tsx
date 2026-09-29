@@ -107,6 +107,23 @@ const MarkdownBody = memo(function MarkdownBody({ md }: { md: string }) {
   return <div className="markdown-body" dangerouslySetInnerHTML={{ __html: renderMarkdownToHtml(md) }} />;
 });
 
+// 문항 본문에 마크다운 표가 섞여 오면 표로 그린다(그 외에는 기존처럼 굵은 한 줄 텍스트).
+const hasMarkdownTable = (text: string) => /^\s*\|.*\|\s*$/m.test(text);
+const numberedMarkdown = (index: number, text: string) => `**${index + 1}.** ${text}`;
+
+function QuestionTitle({ index, text }: { index: number; text: unknown }) {
+  const raw = String(text ?? "");
+  if (hasMarkdownTable(raw)) return <MarkdownBody md={numberedMarkdown(index, raw)} />;
+  return <strong>{index + 1}. <Text>{raw}</Text></strong>;
+}
+
+// 인쇄/워드용 HTML에서도 같은 규칙으로 문항 제목을 만든다.
+function questionTitleHtml(index: number, text: unknown) {
+  const raw = String(text ?? "");
+  if (hasMarkdownTable(raw)) return renderMarkdownToHtml(numberedMarkdown(index, raw));
+  return `<p><strong>${index + 1}. ${escapeHtml(raw)}</strong></p>`;
+}
+
 // 내보내기/복사용: LaTeX 인라인 수식($...$)을 한글·워드에서 읽히는 유니코드 텍스트로 변환한다.
 // (화면·인쇄는 MathJax가 조판하므로 변환하지 않는다.)
 function texToUnicode(tex: string): string {
@@ -638,7 +655,7 @@ function contentToWordHtml(content: GeneratedContent, sel: SectionSel = ALL_SECT
         ${sel.check ? `<h2>확인 퀴즈</h2>
         ${(content.checkQuizzes || []).map((item, index) => `
           <div class="box">
-            <p><strong>${index + 1}. ${escapeHtml(item.question)}</strong></p>
+            ${questionTitleHtml(index, item.question)}
             <p>난이도: ${escapeHtml(item.difficulty)} / 유형: ${escapeHtml(item.type)}</p>
             ${item.choices?.length ? `<p>선택지: ${item.choices.map(escapeHtml).join(" / ")}</p>` : ""}
             <p>정답: ${escapeHtml(item.answer)}</p>
@@ -649,7 +666,7 @@ function contentToWordHtml(content: GeneratedContent, sel: SectionSel = ALL_SECT
         ${sel.exam ? `<h2>시험대비문항</h2>
         ${(content.examQuestions || []).map((item, index) => `
           <div class="box">
-            <p><strong>${index + 1}. ${escapeHtml(item.question)}</strong></p>
+            ${questionTitleHtml(index, item.question)}
             ${item.difficulty ? `<p>난이도: ${escapeHtml(item.difficulty)}</p>` : ""}
             ${item.choices?.length ? item.choices.map((choice, ci) => `<p>${escapeHtml(choiceLabel(choice, ci))}</p>`).join("") : ""}
             <p>정답: ${escapeHtml(item.answer)}</p>
@@ -846,7 +863,7 @@ function GeneratedContentView({
         <h3>확인 퀴즈</h3>
         {(content.checkQuizzes || []).map((item, index) => (
           <div className="question-card" key={`${item.question}-${index}`}>
-            <strong>{index + 1}. <Text>{item.question}</Text></strong>
+            <QuestionTitle index={index} text={item.question} />
             <p>난이도: {item.difficulty} / 유형: {item.type}</p>
             {item.choices?.length ? <p>선택지: <Text>{item.choices.join(" / ")}</Text></p> : null}
             <p>정답: <Text>{item.answer}</Text></p>
@@ -869,7 +886,7 @@ function GeneratedContentView({
         </div>
         {(content.examQuestions || []).map((item, index) => (
           <div className="question-card" key={`${item.question}-${index}`}>
-            <strong>{index + 1}. <Text>{item.question}</Text></strong>
+            <QuestionTitle index={index} text={item.question} />
             {item.difficulty ? <p>난이도: {item.difficulty}</p> : null}
             {item.choices?.length ? (
               <div className="choice-list" style={{ margin: "6px 0" }}>
@@ -1003,7 +1020,7 @@ function ReferenceResultView({ content }: { content: GeneratedContent }) {
       ) : (
         problems.map((item, index) => (
           <div className="question-card" key={`${item.question}-${index}`}>
-            <strong>{index + 1}. <Text>{item.question}</Text></strong>
+            <QuestionTitle index={index} text={item.question} />
             {item.difficulty ? <span className="badge" style={{ marginLeft: 8 }}>{item.difficulty}</span> : null}
             {item.choices?.length ? (
               <div className="choice-list" style={{ margin: "6px 0" }}>
