@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import type { BootstrapData } from "@/types/database";
 import type { GeneratedContent } from "@/types/content";
 
@@ -100,6 +100,12 @@ function renderMarkdownToHtml(md: string): string {
   }
   return out.join("");
 }
+
+// 리렌더 때 innerHTML이 다시 써지면 MathJax가 조판한 수식이 원문($...$)으로 되돌아간다.
+// 마크다운이 바뀔 때만 다시 그리도록 memo로 고정한다.
+const MarkdownBody = memo(function MarkdownBody({ md }: { md: string }) {
+  return <div className="markdown-body" dangerouslySetInnerHTML={{ __html: renderMarkdownToHtml(md) }} />;
+});
 
 // 내보내기/복사용: LaTeX 인라인 수식($...$)을 한글·워드에서 읽히는 유니코드 텍스트로 변환한다.
 // (화면·인쇄는 MathJax가 조판하므로 변환하지 않는다.)
@@ -889,10 +895,7 @@ function GeneratedContentView({
           ) : null}
         </div>
         {content.essayMarkdown ? (
-          <div
-            className="markdown-body"
-            dangerouslySetInnerHTML={{ __html: renderMarkdownToHtml(content.essayMarkdown) }}
-          />
+          <MarkdownBody md={content.essayMarkdown} />
         ) : (
           <>
             {(content.essayQuestions || []).map((item, index) => (
@@ -966,7 +969,7 @@ function GeneratedContentView({
             </div>
             {item.teacherGuide ? <p><strong>교사용 안내</strong>: <Text>{item.teacherGuide}</Text></p> : null}
             <p><strong>AI 붙여넣기용 프롬프트</strong></p>
-            <pre className="prompt-box">{formatMathText(item.aiPrompt)}</pre>
+            <pre className="prompt-box">{mathToUnicode(formatMathText(item.aiPrompt))}</pre>
           </div>
         ))}
       </section>
