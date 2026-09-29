@@ -57,10 +57,19 @@ const EATEN_COMMANDS = new Set([
 // $...$ 수학 구간은 LaTeX 명령어(\\nu 등)를 깨지 않도록 그대로 보존한다.
 export function fixEssayMarkdown(md: string): string {
   if (!md) return "";
-  const restored = md.replace(/([\t\r\f\x08])([a-z]+)/g, (match, ch: string, rest: string) => {
-    const command = EATEN_ESCAPES[ch] + rest;
-    return EATEN_COMMANDS.has(command) ? `\\${command}` : match;
-  });
+  const restored = md
+    .replace(/([\t\r\f\x08])([a-z]+)/g, (match, ch: string, rest: string) => {
+      const command = EATEN_ESCAPES[ch] + rest;
+      return EATEN_COMMANDS.has(command) ? `\\${command}` : match;
+    })
+    // 순환소수는 교과서 표기대로 순환마디 양 끝 숫자 위에 점을 찍는다(윗줄 → 점).
+    // 숫자만 든 윗줄, 또는 소수 자리 바로 뒤의 문자 윗줄(0.a\overline{b})만 바꾸므로 선분 \overline{AB}는 그대로 남는다.
+    .replace(/\\overline\s*\{\s*(\d+)\s*\}|(?<=[0-9a-z.])\\overline\s*\{\s*([0-9a-z]+)\s*\}/g, (_match, onlyDigits?: string, afterDecimal?: string) => {
+      const digits = onlyDigits || afterDecimal || "";
+      return digits.length === 1
+        ? `\\dot{${digits}}`
+        : `\\dot{${digits[0]}}${digits.slice(1, -1)}\\dot{${digits[digits.length - 1]}}`;
+    });
   // 수식($)이나 한글이 섞인 "글"일 때만 $ 밖 명령어를 감싼다.
   const isProse = restored.includes("$") || /[가-힣]/.test(restored);
   return restored
@@ -76,7 +85,7 @@ export function fixEssayMarkdown(md: string): string {
       const text = segment.replace(/\\n(?![a-z])/g, "\n").replace(/\\t(?![a-z])/g, "  ");
       // 글 속에서 $ 밖에 홀로 쓴 명령어(\rightarrow 등)는 $로 감싸 조판되게 한다.
       // ($도 한글도 없는 순수 수식 문자열은 ensureMath가 통째로 감싼다.)
-      return isProse ?text.replace(/\\[a-zA-Z]+(?:\{[^{}$]*\})*/g, "$$$&$$") : text;
+      return isProse ? text.replace(/\\[a-zA-Z]+(?:\{[^{}$]*\})*/g, "$$$&$$") : text;
     })
     .join("");
 }

@@ -38,4 +38,13 @@ eq(
   "cases 여러 줄"
 );
 
+// 순환소수: 윗줄 → 순환마디 양 끝 점. 선분 표기는 그대로.
+eq(`$0.${BS}overline{3}$`, `$0.${BS}dot{3}$`, "순환마디 한 자리");
+eq(`$0.${BS}overline{72}$`, `$0.${BS}dot{7}${BS}dot{2}$`, "순환마디 두 자리");
+eq(`$0.4${BS}overline{123}$`, `$0.4${BS}dot{1}2${BS}dot{3}$`, "순환마디 세 자리");
+eq(`0.${BS}overline{3}`, `0.${BS}dot{3}`, "$ 없는 선택지도 변환");
+eq(`$x=0.a${BS}overline{b}$`, `$x=0.a${BS}dot{b}$`, "문자로 쓴 순환마디(일반형)");
+eq(`$${BS}overline{AB}$`, `$${BS}overline{AB}$`, "선분은 윗줄 유지");
+eq(`$${BS}overline{ab}$`, `$${BS}overline{ab}$`, "소문자 선분도 윗줄 유지");
+
 console.log("check-math-repair: OK");

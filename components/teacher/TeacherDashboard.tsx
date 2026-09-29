@@ -142,6 +142,7 @@ function texToUnicode(tex: string): string {
   // 분수보다 먼저 처리해야 분자/분모 안의 근호·윗줄이 살아남는다.
   s = s.replace(/\\sqrt\s*\{([^{}]*)\}/g, "√($1)").replace(/\\sqrt\s*(\w)/g, "√$1");
   s = s.replace(/\\overline\s*\{([^{}]*)\}/g, "$1̅");
+  s = s.replace(/\\dot\s*\{([^{}]*)\}/g, "$1̇"); // 순환마디 점: 0.\dot{3} → 0.3̇
   s = s.replace(/\\mathrm\s*\{([^{}]*)\}/g, "$1");
   // 분수는 중첩(분자에 또 분수)까지 잡도록 여러 번 적용한다.
   for (let i = 0; i < 4; i += 1) {
